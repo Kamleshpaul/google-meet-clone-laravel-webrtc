@@ -54,7 +54,8 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
         const peer = new Peer({
             initiator: true,
             trickle: true,
-            stream: localStream
+            stream: localStream,
+            config:servers
         });
 
         peer.on('signal', async (signal) => {
@@ -86,6 +87,7 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
             initiator: false,
             trickle: true,
             stream: localStream,
+            config:servers
         });
 
         peer.on('signal', async (signal) => {
