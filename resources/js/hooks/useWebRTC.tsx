@@ -30,13 +30,12 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
     const [isVideoOff, setIsVideoOff] = useState<boolean>(false);
     const [isScreenSharing, setIsScreenSharing] = useState<boolean>(false);
     const [isCallMissed, setIsCallMissed] = useState<boolean>(false);
-    const [users, setUsers] = useState<User[]>([]);
 
     const [localStream, setLocalStream] = useState<MediaStream>(new MediaStream());
     const [remoteStreams, setRemoteStreams] = useState<{ [key: number]: MediaStream }>({});
     const peersRef = useRef<Record<string, Peer.Instance>>({});
 
-    
+
     const createMyVideoStream = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -55,9 +54,8 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
             initiator: true,
             trickle: true,
             stream: localStream,
-            config:servers
+            config: servers
         });
-
         peer.on('signal', async (signal) => {
             await axios.post(route("handshake"), {
                 reciver_id: targetId,
@@ -69,16 +67,12 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
         });
 
         peer.on('stream', stream => {
-            console.log(" got stream Remote ");
             setRemoteStreams(prevState => ({
                 ...prevState,
                 [targetId]: stream,
             }));
         })
-
-        console.log("createPeer for " + targetId);
         peersRef.current[targetId] = peer;
-
         return peer;
     }
 
@@ -87,7 +81,7 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
             initiator: false,
             trickle: true,
             stream: localStream,
-            config:servers
+            config: servers
         });
 
         peer.on('signal', async (signal) => {
@@ -103,18 +97,14 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
         });
         if (offer) {
             peer.signal(offer);
-            console.log(" CONNECTED ");
         }
 
         peer.on('stream', stream => {
-            console.log(" got stream Remote ");
             setRemoteStreams(prevState => ({
                 ...prevState,
                 [targetId]: stream,
             }));
         })
-
-        console.log("createPeer for " + targetId);
         peersRef.current[targetId] = peer;
         return peer;
     }
@@ -124,12 +114,10 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
         if (!peerId) return;
         peerId.destroy();
         delete peersRef.current[targetId];
-        console.log('removed---------->>>>>>>', { peersRef: peersRef.current });
     }
 
     const handleIncomingOffer = (sender_id: number, offer: SignalData) => {
         const peerId = findPeer(sender_id);
-        console.log({ peerId })
         if (peerId) {
             addPeer(sender_id, offer);
         }
@@ -157,17 +145,14 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
                     try {
                         const JSON_DATA: SignalData = JSON.parse(data);
                         if (JSON_DATA.type === 'offer') {
-                            console.log("GOT  offer")
                             handleIncomingOffer(sender_id, JSON_DATA);
                         }
 
                         if (JSON_DATA.type === 'answer') {
-                            console.log("GOT answer")
                             handleIncomingAnswer(sender_id, JSON_DATA);
                         }
 
                         if (JSON_DATA.type === 'candidate') {
-                            console.log("GOT candidate ")
                             handleIncomingCandidate(sender_id, JSON_DATA);
                         }
 
@@ -189,19 +174,14 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
                     users.map(async user => {
                         if (user.id !== userId) {
                             createPeer(user.id);
-                            console.log("Creating  offer and sending offer");
                         }
                     })
                 })
                 .joining(async (user: User) => {
-                    setUsers(prevState => [...prevState, user]);
                     addPeer(user.id);
-                    console.log("Don't create offer it will recive offer");
                 })
                 .leaving((user: User) => {
-                    setUsers(prevState => prevState.filter(x => x.id !== user.id));
                     removePeer(user.id)
-                    console.log("leaving user " + user.id);
                 })
                 .error((error: any) => {
                     console.error({ error });
@@ -210,7 +190,23 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
         return () => {
             (window as any).Echo.leave(`meeting.${meetingId}`);
         }
-    }, [])
+    }, [meetingId])
+
+
+    // useEffect(() => {
+    //     const audioTrack = localStream.getAudioTracks()[0];
+    //     if(audioTrack){
+
+    //         audioTrack.enabled = !audioTrack.enabled;
+    //     }
+    // }, [isAudioMuted])
+
+    // useEffect(() => {
+    //     const videoTrack = localStream.getVideoTracks()[0];
+    //     if (videoTrack) {
+    //         videoTrack.enabled = !videoTrack.enabled;
+    //     }
+    // }, [isVideoOff])
 
     return {
         isAudioMuted,

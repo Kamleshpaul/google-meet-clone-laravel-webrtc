@@ -67,7 +67,6 @@ export default function Meeting({ auth, id }: MeetingProps) {
                 />
 
                 {Object.keys(remoteStreams).map((id) => {
-                    console.log({ id })
                     return (
                         <video
                             key={id}
