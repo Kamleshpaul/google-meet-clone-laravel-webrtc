@@ -1,7 +1,5 @@
-import { User } from '@/types';
 import axios from 'axios';
 import { useEffect, useRef, useState } from 'react';
-import Peer, { SignalData } from 'simple-peer';
 
 
 const servers = {
@@ -22,10 +20,12 @@ export interface WebRTCState {
     isCallMissed: boolean;
     setIsCallMissed: React.Dispatch<React.SetStateAction<boolean>>;
     localStream: MediaStream,
-    remoteStreams: { [key: number]: MediaStream }
+    remoteStreams: { [key: number]: MediaStream },
+    createOffer: (targetId: number) => void
+    createPeer: (targetId: number) => Promise<RTCPeerConnection>
 }
 
-export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: number }): WebRTCState {
+export function useWebRTC({ userId }: { userId: number }): WebRTCState {
     const [isAudioMuted, setIsAudioMuted] = useState<boolean>(false);
     const [isVideoOff, setIsVideoOff] = useState<boolean>(false);
     const [isScreenSharing, setIsScreenSharing] = useState<boolean>(false);
@@ -33,7 +33,7 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
 
     const [localStream, setLocalStream] = useState<MediaStream>(new MediaStream());
     const [remoteStreams, setRemoteStreams] = useState<{ [key: number]: MediaStream }>({});
-    const peersRef = useRef<Record<string, Peer.Instance>>({});
+    const peersRef = useRef<Record<number, RTCPeerConnection>>({});
 
 
     const createMyVideoStream = async () => {
@@ -49,91 +49,97 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
         return peersRef.current[id];
     }
 
-    const createPeer = (targetId: number) => {
-        const peer = new Peer({
-            initiator: true,
-            trickle: true,
-            stream: localStream,
-            config: servers
-        });
-        peer.on('signal', async (signal) => {
-            await axios.post(route("handshake"), {
-                reciver_id: targetId,
-                data: JSON.stringify(signal),
+    const createPeer = async (targetId: number): Promise<RTCPeerConnection> => {
+        return new Promise(async (resolve) => {
+            const peer = new RTCPeerConnection(servers);
+
+            localStream.getTracks().forEach((track) => {
+                peer.addTrack(track, localStream);
             });
-        });
-        peer.on('disconnect', () => {
-            peer.destroy();
-        });
 
-        peer.on('stream', stream => {
-            setRemoteStreams(prevState => ({
-                ...prevState,
-                [targetId]: stream,
-            }));
-        })
-        peersRef.current[targetId] = peer;
-        return peer;
+            peer.onicecandidate = (event) => {
+                if (event.candidate) {
+                    axios.post(route("handshake"), {
+                        reciver_id: targetId,
+                        data: JSON.stringify({
+                            type: 'candidate',
+                            data: event.candidate
+                        }),
+                    });
+                }
+            };
+
+            peer.ontrack = async (event) => {
+
+                console.log("GOT TRACK " + targetId);   
+            }
+
+            peer.onconnectionstatechange = () => {
+                console.log(`${peer.iceConnectionState} for ${targetId}`)
+            };
+
+            peer.onsignalingstatechange = () => {
+                console.log(`${peer.signalingState} for ${targetId}`)
+            };
+            
+
+            peersRef.current[targetId] = peer;
+            resolve(peer);
+        });
     }
 
-    const addPeer = (targetId: number, offer?: SignalData) => {
-        const peer = new Peer({
-            initiator: false,
-            trickle: true,
-            stream: localStream,
-            config: servers
-        });
 
-        peer.on('signal', async (signal) => {
-            // sent answer to other user
+    const createOffer = async (targetId: number) => {
+
+        let peer = findPeer(targetId);
+        if (!peer) {
+            peer = await createPeer(targetId);
+        }
+        const offer = await peer.createOffer();
+        await peer.setLocalDescription(offer);
+
+        await axios.post(route("handshake"), {
+            reciver_id: targetId,
+            data: JSON.stringify(offer),
+        });
+    }
+
+
+
+
+    const handleIncomingOffer = async (sender_id: number, offer: RTCSessionDescriptionInit) => {
+        const peer = findPeer(sender_id);
+        if (peer) {
+
+            await peer.setRemoteDescription(offer);
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+
             await axios.post(route("handshake"), {
-                reciver_id: targetId,
-                data: JSON.stringify(signal),
+                reciver_id: sender_id,
+                data: JSON.stringify(answer),
             });
-        });
 
-        peer.on('disconnect', () => {
-            peer.destroy();
-        });
-        if (offer) {
-            peer.signal(offer);
-        }
-
-        peer.on('stream', stream => {
-            setRemoteStreams(prevState => ({
-                ...prevState,
-                [targetId]: stream,
-            }));
-        })
-        peersRef.current[targetId] = peer;
-        return peer;
-    }
-
-    const removePeer = (targetId: number) => {
-        const peerId = findPeer(targetId);
-        if (!peerId) return;
-        peerId.destroy();
-        delete peersRef.current[targetId];
-    }
-
-    const handleIncomingOffer = (sender_id: number, offer: SignalData) => {
-        const peerId = findPeer(sender_id);
-        if (peerId) {
-            addPeer(sender_id, offer);
+        } else {
+            console.error(`ERROR ON handleIncomingOffer no peer ${sender_id} found.`);
         }
     }
 
-    const handleIncomingAnswer = (sender_id: number, answer: SignalData) => {
-        const peerId = findPeer(sender_id);
-        if (peerId) {
-            // accept answer
-            peerId.signal(answer);
+    const handleIncomingAnswer = async (sender_id: number, answer: RTCSessionDescriptionInit) => {
+        const peer = findPeer(sender_id);
+        if (peer) {
+            await peer.setRemoteDescription(answer);
+        } else {
+            console.error(`ERROR  ON handleIncomingAnswer no peer ${sender_id} found.`);
         }
     }
-    const handleIncomingCandidate = (sender_id: number, candidate: SignalData) => {
-        const peerId = findPeer(sender_id);
-        if (peerId) {
-            peerId.signal(candidate);
+
+    const handleIncomingCandidate = async (sender_id: number, candidate: RTCIceCandidate) => {
+        const peer = findPeer(sender_id);
+        if (peer) {
+            await peer.addIceCandidate(candidate);
+        } else {
+            console.error(`ERROR  ON handleIncomingCandidate no peer ${sender_id} found.`);
         }
     }
 
@@ -143,7 +149,7 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
             (window as any).Echo.private(`handshake.${userId}`)
                 .listen("SendHandShake", async ({ sender_id, data }: { sender_id: number, data: string }) => {
                     try {
-                        const JSON_DATA: SignalData = JSON.parse(data);
+                        const JSON_DATA = JSON.parse(data);
                         if (JSON_DATA.type === 'offer') {
                             handleIncomingOffer(sender_id, JSON_DATA);
                         }
@@ -166,31 +172,6 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
             (window as any).Echo.leave(`handshake.${userId}`);
         }
     }, [userId]);
-
-    useEffect(() => {
-        if (meetingId) {
-            (window as any).Echo.join(`meeting.${meetingId}`)
-                .here(async (users: User[]) => {
-                    users.map(async user => {
-                        if (user.id !== userId) {
-                            createPeer(user.id);
-                        }
-                    })
-                })
-                .joining(async (user: User) => {
-                    addPeer(user.id);
-                })
-                .leaving((user: User) => {
-                    removePeer(user.id)
-                })
-                .error((error: any) => {
-                    console.error({ error });
-                });
-        }
-        return () => {
-            (window as any).Echo.leave(`meeting.${meetingId}`);
-        }
-    }, [meetingId])
 
 
     // useEffect(() => {
@@ -218,7 +199,8 @@ export function useWebRTC({ meetingId, userId }: { meetingId: string; userId: nu
         isCallMissed,
         setIsCallMissed,
         localStream,
-        remoteStreams
-
+        remoteStreams,
+        createPeer,
+        createOffer
     }
 }

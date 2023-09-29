@@ -6,7 +6,8 @@ import { LuScreenShare, LuScreenShareOff } from "react-icons/lu";
 import { MdCall } from "react-icons/md";
 import { HiPhoneMissedCall } from "react-icons/hi";
 import { useWebRTC, WebRTCState } from "@/hooks/useWebRTC";
-import { PageProps } from "@/types";
+import { PageProps, User } from "@/types";
+import { useEffect } from "react";
 
 interface MeetingProps extends PageProps {
     id: string;
@@ -23,8 +24,10 @@ export default function Meeting({ auth, id }: MeetingProps) {
         isCallMissed,
         setIsCallMissed,
         localStream,
-        remoteStreams
-    }: WebRTCState = useWebRTC({ meetingId: id, userId: auth?.user?.id });
+        remoteStreams,
+        createOffer,
+        createPeer
+    }: WebRTCState = useWebRTC({ userId: auth?.user?.id });
 
     const toggleAudio = () => {
         setIsAudioMuted(!isAudioMuted);
@@ -42,6 +45,30 @@ export default function Meeting({ auth, id }: MeetingProps) {
         setIsCallMissed(!isCallMissed);
     };
 
+    useEffect(() => {
+        if (id) {
+            (window as any).Echo.join(`meeting.${id}`)
+                .here(async (users: User[]) => {
+                    users.map(async user => {
+                        if (user.id !== auth.user.id) {
+                            createPeer(user.id);
+                        }
+                    })
+                })
+                .joining(async (user: User) => {
+                    createOffer(user.id);
+                })
+                .leaving((user: User) => {
+                    // removePeer(user.id)
+                })
+                .error((error: any) => {
+                    console.error({ error });
+                });
+        }
+        return () => {
+            (window as any).Echo.leave(`meeting.${id}`);
+        }
+    }, [id])
 
     return (
         <div className="relative w-screen h-screen bg-black opacity-90">
