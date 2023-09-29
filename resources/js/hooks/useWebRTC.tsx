@@ -24,6 +24,7 @@ export interface WebRTCState {
     createPeer: (targetId: number, stream: MediaStream) => Promise<RTCPeerConnection>;
     videoContainerRef: React.RefObject<HTMLDivElement>;
     createMyVideoStream: () => Promise<MediaStream | undefined>
+    destroyConnection: () => void
 }
 
 export function useWebRTC({ userId }: { userId: number }): WebRTCState {
@@ -34,6 +35,7 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
 
     const videoContainerRef = useRef<HTMLDivElement | null>(null);
     const peersRef = useRef<Record<number, RTCPeerConnection>>([]);
+    const localStreamRef = useRef(new MediaStream);
 
 
     const createVideoContainer = (id: number, stream: MediaStream) => {
@@ -54,12 +56,33 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
             setIsAudioMuted(!stream.getAudioTracks()[0]?.enabled);
             setIsVideoOff(!stream.getVideoTracks()[0]?.enabled);
             createVideoContainer(userId, stream)
+            localStreamRef.current = stream;
             return stream;
 
         } catch (error) {
             console.error('Error  accessing camera and microphone :', error);
         }
     };
+
+    const destroyConnection = () => {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+
+        Object.keys(peersRef.current).forEach((targetId) => {
+            const peer = peersRef.current[parseInt(targetId)];
+            if (peer) {
+                peer.ontrack = null; 
+                peer.onicecandidate = null; 
+                peer.onsignalingstatechange = null; 
+                peer.onconnectionstatechange = null; 
+                peer.close(); 
+            }
+        });
+
+        peersRef.current = [];
+        if (videoContainerRef.current) {
+            videoContainerRef.current.innerHTML = "";
+        }
+    }
 
 
     const createPeer = async (targetId: number, stream: MediaStream): Promise<RTCPeerConnection> => {
@@ -209,7 +232,7 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
             (window as any).Echo.leave(`handshake.${userId}`);
         }
     }, [userId, peersRef]);
-    
+
     return {
         isAudioMuted,
         setIsAudioMuted,
@@ -223,6 +246,7 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
         createPeer,
         removePeer,
         createOffer,
-        createMyVideoStream
+        createMyVideoStream,
+        destroyConnection
     }
 }

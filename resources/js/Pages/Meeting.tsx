@@ -1,9 +1,8 @@
-import { Head } from "@inertiajs/react";
+import { Head, router } from "@inertiajs/react";
 import PrimaryButton from "@/Components/PrimaryButton";
 import { AiOutlineAudio, AiOutlineAudioMuted } from "react-icons/ai";
 import { BsCameraVideo, BsCameraVideoOff } from "react-icons/bs";
 import { LuScreenShare, LuScreenShareOff } from "react-icons/lu";
-import { MdCall } from "react-icons/md";
 import { HiPhoneMissedCall } from "react-icons/hi";
 import { useWebRTC, WebRTCState } from "@/hooks/useWebRTC";
 import { PageProps, User } from "@/types";
@@ -21,13 +20,12 @@ export default function Meeting({ auth, id }: MeetingProps) {
         setIsVideoOff,
         isScreenSharing,
         setIsScreenSharing,
-        isCallMissed,
-        setIsCallMissed,
         videoContainerRef,
         createOffer,
         createPeer,
         removePeer,
-        createMyVideoStream
+        createMyVideoStream,
+        destroyConnection
     }: WebRTCState = useWebRTC({ userId: auth?.user?.id });
 
 
@@ -45,18 +43,20 @@ export default function Meeting({ auth, id }: MeetingProps) {
         setIsScreenSharing(!isScreenSharing);
     };
 
-    const toggleCall = () => {
-        setIsCallMissed(!isCallMissed);
-    };
+    const endCall = () => {
+        destroyConnection();
+        router.visit(`/dashboard`);
+    }
+
 
     useEffect(() => {
         const initializeVideoStream = async () => {
             const stream = await createMyVideoStream();
-            
+
             if (!stream) {
                 return alert('No Video and Audio found.')
             }
-            
+
             setMyStream(stream);
 
             if (id) {
@@ -156,12 +156,8 @@ export default function Meeting({ auth, id }: MeetingProps) {
                         )}
                     </PrimaryButton>
 
-                    <PrimaryButton onClick={toggleCall}>
-                        {isCallMissed ? (
-                            <HiPhoneMissedCall className="w-5 h-5" />
-                        ) : (
-                            <MdCall className="w-5 h-5" />
-                        )}
+                    <PrimaryButton onClick={endCall}>
+                        <HiPhoneMissedCall className="w-5 h-5" />
                     </PrimaryButton>
                 </div>
 
