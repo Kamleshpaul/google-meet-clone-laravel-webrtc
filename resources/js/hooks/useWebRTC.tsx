@@ -51,6 +51,8 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
     const createMyVideoStream = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            setIsAudioMuted(!stream.getAudioTracks()[0]?.enabled);
+            setIsVideoOff(!stream.getVideoTracks()[0]?.enabled);
             createVideoContainer(userId, stream)
             return stream;
 
@@ -207,23 +209,7 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
             (window as any).Echo.leave(`handshake.${userId}`);
         }
     }, [userId, peersRef]);
-
-
-    // useEffect(() => {
-    //     const audioTrack = localStream.getAudioTracks()[0];
-    //     if(audioTrack){
-
-    //         audioTrack.enabled = !audioTrack.enabled;
-    //     }
-    // }, [isAudioMuted])
-
-    // useEffect(() => {
-    //     const videoTrack = localStream.getVideoTracks()[0];
-    //     if (videoTrack) {
-    //         videoTrack.enabled = !videoTrack.enabled;
-    //     }
-    // }, [isVideoOff])
-
+    
     return {
         isAudioMuted,
         setIsAudioMuted,

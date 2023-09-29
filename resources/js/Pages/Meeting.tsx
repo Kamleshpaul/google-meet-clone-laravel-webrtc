@@ -7,7 +7,7 @@ import { MdCall } from "react-icons/md";
 import { HiPhoneMissedCall } from "react-icons/hi";
 import { useWebRTC, WebRTCState } from "@/hooks/useWebRTC";
 import { PageProps, User } from "@/types";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 interface MeetingProps extends PageProps {
     id: string;
@@ -29,6 +29,9 @@ export default function Meeting({ auth, id }: MeetingProps) {
         removePeer,
         createMyVideoStream
     }: WebRTCState = useWebRTC({ userId: auth?.user?.id });
+
+
+    const [myStream, setMyStream] = useState<MediaStream>();
 
     const toggleAudio = () => {
         setIsAudioMuted(!isAudioMuted);
@@ -54,6 +57,8 @@ export default function Meeting({ auth, id }: MeetingProps) {
                 return alert('No Video and Audio found.')
             }
             
+            setMyStream(stream);
+
             if (id) {
                 (window as any).Echo.join(`meeting.${id}`)
                     .here(async (users: User[]) => {
@@ -84,6 +89,20 @@ export default function Meeting({ auth, id }: MeetingProps) {
         };
     }, [id]);
 
+
+    useEffect(() => {
+        const audioTrack = myStream?.getAudioTracks()[0];
+        if (audioTrack) {
+            audioTrack.enabled = !isAudioMuted;
+        }
+    }, [isAudioMuted]);
+
+    useEffect(() => {
+        const videoTrack = myStream?.getVideoTracks()[0];
+        if (videoTrack) {
+            videoTrack.enabled = !isVideoOff;
+        }
+    }, [isVideoOff]);
 
     return (
         <div className="relative w-screen h-screen bg-black opacity-90">
