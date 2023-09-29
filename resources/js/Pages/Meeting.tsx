@@ -6,7 +6,7 @@ import { LuScreenShare, LuScreenShareOff } from "react-icons/lu";
 import { HiPhoneMissedCall } from "react-icons/hi";
 import { useWebRTC, WebRTCState } from "@/hooks/useWebRTC";
 import { PageProps, User } from "@/types";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 interface MeetingProps extends PageProps {
     id: string;
@@ -27,9 +27,6 @@ export default function Meeting({ auth, id }: MeetingProps) {
         createMyVideoStream,
         destroyConnection
     }: WebRTCState = useWebRTC({ userId: auth?.user?.id });
-
-
-    const [myStream, setMyStream] = useState<MediaStream>();
 
     const toggleAudio = () => {
         setIsAudioMuted(!isAudioMuted);
@@ -56,8 +53,6 @@ export default function Meeting({ auth, id }: MeetingProps) {
             if (!stream) {
                 return alert('No Video and Audio found.')
             }
-
-            setMyStream(stream);
 
             if (id) {
                 (window as any).Echo.join(`meeting.${id}`)
@@ -89,20 +84,6 @@ export default function Meeting({ auth, id }: MeetingProps) {
         };
     }, [id]);
 
-
-    useEffect(() => {
-        const audioTrack = myStream?.getAudioTracks()[0];
-        if (audioTrack) {
-            audioTrack.enabled = !isAudioMuted;
-        }
-    }, [isAudioMuted]);
-
-    useEffect(() => {
-        const videoTrack = myStream?.getVideoTracks()[0];
-        if (videoTrack) {
-            videoTrack.enabled = !isVideoOff;
-        }
-    }, [isVideoOff]);
 
     return (
         <div className="relative w-screen h-screen bg-black opacity-90">
@@ -148,7 +129,10 @@ export default function Meeting({ auth, id }: MeetingProps) {
                         )}
                     </PrimaryButton>
 
-                    <PrimaryButton onClick={toggleScreenSharing}>
+                    <PrimaryButton
+                        onClick={toggleScreenSharing}
+                        disabled={isScreenSharing}
+                    >
                         {isScreenSharing ? (
                             <LuScreenShareOff className="w-5 h-5" />
                         ) : (

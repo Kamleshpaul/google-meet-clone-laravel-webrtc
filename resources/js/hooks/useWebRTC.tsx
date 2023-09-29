@@ -52,6 +52,7 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
 
     const createMyVideoStream = async () => {
         try {
+
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             setIsAudioMuted(!stream.getAudioTracks()[0]?.enabled);
             setIsVideoOff(!stream.getVideoTracks()[0]?.enabled);
@@ -70,11 +71,12 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
         Object.keys(peersRef.current).forEach((targetId) => {
             const peer = peersRef.current[parseInt(targetId)];
             if (peer) {
-                peer.ontrack = null; 
-                peer.onicecandidate = null; 
-                peer.onsignalingstatechange = null; 
-                peer.onconnectionstatechange = null; 
-                peer.close(); 
+                peer.ontrack = null;
+                peer.onicecandidate = null;
+                peer.onsignalingstatechange = null;
+                peer.onconnectionstatechange = null;
+                peer.close();
+                console.log("DESTROY " + targetId);
             }
         });
 
@@ -204,6 +206,49 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
         });
     }
 
+    const replaceTrack = (screenTrack: MediaStreamTrack) => {
+        Object.keys(peersRef.current).forEach(targetId => {
+            const peer = peersRef.current[parseInt(targetId)];
+            if (peer) {
+                const senders = peer.getSenders();
+                senders.forEach(sender => {
+                    if (sender.track?.kind === 'video') {
+                        sender.replaceTrack(screenTrack);
+                    }
+                });
+            }
+        });
+    }
+
+    const shareScreen = async () => {
+        try {
+            const screenStream = await navigator.mediaDevices.getDisplayMedia();
+            const screenTrack = screenStream.getTracks()[0];
+
+            let video = document.getElementById(userId.toString()) as HTMLVideoElement;
+            video.srcObject = screenStream;
+
+            replaceTrack(screenTrack);
+
+            screenTrack.onended = () => {
+
+                setIsScreenSharing(false);
+
+                const camVideo = localStreamRef
+                    .current
+                    .getTracks()
+                    .find((track) => track.kind === "video") as MediaStreamTrack;
+
+                replaceTrack(camVideo);
+                video.srcObject = localStreamRef.current
+            };
+
+        } catch (error) {
+            setIsScreenSharing(false);
+            console.error('Error sharing screen:', error);
+        }
+    };
+
     useEffect(() => {
         if (userId) {
             (window as any).Echo.private(`handshake.${userId}`)
@@ -232,6 +277,27 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
             (window as any).Echo.leave(`handshake.${userId}`);
         }
     }, [userId, peersRef]);
+
+
+    useEffect(() => {
+        const audioTrack = localStreamRef.current?.getAudioTracks()[0];
+        if (audioTrack) {
+            audioTrack.enabled = !isAudioMuted;
+        }
+    }, [isAudioMuted]);
+
+    useEffect(() => {
+        const videoTrack = localStreamRef.current?.getVideoTracks()[0];
+        if (videoTrack) {
+            videoTrack.enabled = !isVideoOff;
+        }
+    }, [isVideoOff]);
+
+    useEffect(() => {
+        if (isScreenSharing) {
+            shareScreen();
+        }
+    }, [isScreenSharing]);
 
     return {
         isAudioMuted,
