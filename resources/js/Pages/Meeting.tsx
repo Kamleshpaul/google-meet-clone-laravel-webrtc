@@ -101,6 +101,7 @@ export default function Meeting({ auth, id }: MeetingProps) {
                             className="w-full h-full rounded"
                             autoPlay
                             muted
+                            playsInline
                             ref={(videoRef) => {
                                 if (videoRef) {
                                     videoRef.srcObject = remoteStreams[parseInt(id)];

@@ -50,42 +50,64 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
     }
 
     const createPeer = async (targetId: number): Promise<RTCPeerConnection> => {
-        return new Promise(async (resolve) => {
-            const peer = new RTCPeerConnection(servers);
+        const peer =  new RTCPeerConnection(servers);
 
-            localStream.getTracks().forEach((track) => {
-                peer.addTrack(track, localStream);
-            });
-
-            peer.onicecandidate = (event) => {
-                if (event.candidate) {
-                    axios.post(route("handshake"), {
-                        reciver_id: targetId,
-                        data: JSON.stringify({
-                            type: 'candidate',
-                            data: event.candidate
-                        }),
-                    });
-                }
-            };
-
-            peer.ontrack = async (event) => {
-
-                console.log("GOT TRACK " + targetId);   
-            }
-
-            peer.onconnectionstatechange = () => {
-                console.log(`${peer.iceConnectionState} for ${targetId}`)
-            };
-
-            peer.onsignalingstatechange = () => {
-                console.log(`${peer.signalingState} for ${targetId}`)
-            };
-            
-
-            peersRef.current[targetId] = peer;
-            resolve(peer);
+        localStream.getTracks().forEach((track) => {
+            peer.addTrack(track, localStream);
         });
+
+        peer.onicecandidate = (event) => {
+            if (event.candidate) {
+                axios.post(route("handshake"), {
+                    reciver_id: targetId,
+                    data: JSON.stringify({
+                        type: 'candidate',
+                        data: event.candidate
+                    }),
+                });
+            } else {
+                console.log('ICE Gathering Complete');
+            }
+        };
+
+        peer.ontrack = async (event) => {
+            console.log("GOT TRACK " + targetId);
+            setRemoteStreams(prevState => {
+                let updatedState = { ...prevState };
+                let newStream = event.streams[0];
+
+                if (newStream) {
+                    updatedState[targetId] = newStream;
+                }
+
+                return updatedState;
+            });
+        }
+
+        peer.onconnectionstatechange = () => {
+            console.log(`${peer.iceConnectionState} for  ${targetId}`)
+        };
+
+        peer.onsignalingstatechange = () => {
+            console.log(`${peer.signalingState} for ${targetId}`);
+
+            if (peer.iceConnectionState === 'disconnected' ||
+                peer.iceConnectionState === 'failed' ||
+                peer.iceConnectionState === 'closed') {
+
+                setRemoteStreams(prevState => {
+                    let updatedState = { ...prevState };
+                    delete updatedState[targetId];
+                    return updatedState;
+                });
+
+                delete peersRef.current[targetId];
+            }
+        };
+
+
+        peersRef.current[targetId] = peer;
+        return peer;
     }
 
 
@@ -129,6 +151,7 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
         const peer = findPeer(sender_id);
         if (peer) {
             await peer.setRemoteDescription(answer);
+            console.log("ANSWER ACCEPTED")
         } else {
             console.error(`ERROR  ON handleIncomingAnswer no peer ${sender_id} found.`);
         }
