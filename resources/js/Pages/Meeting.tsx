@@ -7,6 +7,7 @@ import { HiPhoneMissedCall } from "react-icons/hi";
 import { useWebRTC, WebRTCState } from "@/hooks/useWebRTC";
 import { PageProps, User } from "@/types";
 import { useEffect } from "react";
+import Moment from "react-moment";
 
 interface MeetingProps extends PageProps {
     id: string;
@@ -103,10 +104,8 @@ export default function Meeting({ auth, id }: MeetingProps) {
             <div className="absolute grid w-screen grid-cols-3 px-10 text-white bottom-5">
                 <div className="flex">
                     <div className="mr-1 cursor-not-allowed">
-                        {new Date().toLocaleTimeString("en-US", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                        })}{" "}
+                        <Moment className="mr-1" format="h:mm A" />
+                        
                         |
                     </div>
                     <div>{id}</div>
