@@ -23,10 +23,11 @@ export default function Meeting({ auth, id }: MeetingProps) {
         setIsScreenSharing,
         isCallMissed,
         setIsCallMissed,
-        localStream,
-        remoteStreams,
+        videoContainerRef,
         createOffer,
-        createPeer
+        createPeer,
+        removePeer,
+        createMyVideoStream
     }: WebRTCState = useWebRTC({ userId: auth?.user?.id });
 
     const toggleAudio = () => {
@@ -46,29 +47,43 @@ export default function Meeting({ auth, id }: MeetingProps) {
     };
 
     useEffect(() => {
-        if (id) {
-            (window as any).Echo.join(`meeting.${id}`)
-                .here(async (users: User[]) => {
-                    users.map(async user => {
-                        if (user.id !== auth.user.id) {
-                            createPeer(user.id);
+        const initializeVideoStream = async () => {
+            const stream = await createMyVideoStream();
+            
+            if (!stream) {
+                return alert('No Video and Audio found.')
+            }
+            
+            if (id) {
+                (window as any).Echo.join(`meeting.${id}`)
+                    .here(async (users: User[]) => {
+                        users.map(async (user) => {
+                            if (user.id !== auth.user.id) {
+                                await createPeer(user.id, stream);
+                            }
+                        });
+                    })
+                    .joining(async (user: User) => {
+                        if (stream) {
+                            createOffer(user.id, stream);
                         }
                     })
-                })
-                .joining(async (user: User) => {
-                    createOffer(user.id);
-                })
-                .leaving((user: User) => {
-                    // removePeer(user.id)
-                })
-                .error((error: any) => {
-                    console.error({ error });
-                });
-        }
+                    .leaving((user: User) => {
+                        removePeer(user.id);
+                    })
+                    .error((error: any) => {
+                        console.error({ error });
+                    });
+            }
+        };
+
+        initializeVideoStream();
+
         return () => {
             (window as any).Echo.leave(`meeting.${id}`);
-        }
-    }, [id])
+        };
+    }, [id]);
+
 
     return (
         <div className="relative w-screen h-screen bg-black opacity-90">
@@ -79,38 +94,8 @@ export default function Meeting({ auth, id }: MeetingProps) {
             </div>
 
             {/* Video grid container */}
-            <div
-                className="grid h-full grid-cols-1 gap-2 px-10 pt-10 pb-32 sm:grid-cols-2 md:grid-cols-3"
-            >
-                <video
-                    className="w-full h-full rounded"
-                    autoPlay
-                    muted
-                    ref={(videoRef) => {
-                        if (videoRef) {
-                            videoRef.srcObject = localStream;
-                        }
-                    }}
-                />
-
-                {Object.keys(remoteStreams).map((id) => {
-                    return (
-                        <video
-                            key={id}
-                            id={id}
-                            className="w-full h-full rounded"
-                            autoPlay
-                            muted
-                            playsInline
-                            ref={(videoRef) => {
-                                if (videoRef) {
-                                    videoRef.srcObject = remoteStreams[parseInt(id)];
-                                }
-                            }}
-                        />
-                    )
-                })}
-
+            <div ref={videoContainerRef}
+                className="grid h-full grid-cols-1 gap-2 px-10 pt-10 pb-32 sm:grid-cols-2 md:grid-cols-3">
 
             </div>
 

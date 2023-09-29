@@ -19,10 +19,11 @@ export interface WebRTCState {
     setIsScreenSharing: React.Dispatch<React.SetStateAction<boolean>>;
     isCallMissed: boolean;
     setIsCallMissed: React.Dispatch<React.SetStateAction<boolean>>;
-    localStream: MediaStream,
-    remoteStreams: { [key: number]: MediaStream },
-    createOffer: (targetId: number) => void
-    createPeer: (targetId: number) => Promise<RTCPeerConnection>
+    createOffer: (targetId: number, stream: MediaStream) => void;
+    removePeer: (targetId: number) => void;
+    createPeer: (targetId: number, stream: MediaStream) => Promise<RTCPeerConnection>;
+    videoContainerRef: React.RefObject<HTMLDivElement>;
+    createMyVideoStream: () => Promise<MediaStream | undefined>
 }
 
 export function useWebRTC({ userId }: { userId: number }): WebRTCState {
@@ -31,77 +32,70 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
     const [isScreenSharing, setIsScreenSharing] = useState<boolean>(false);
     const [isCallMissed, setIsCallMissed] = useState<boolean>(false);
 
-    const [localStream, setLocalStream] = useState<MediaStream>(new MediaStream());
-    const [remoteStreams, setRemoteStreams] = useState<{ [key: number]: MediaStream }>({});
-    const peersRef = useRef<Record<number, RTCPeerConnection>>({});
+    const videoContainerRef = useRef<HTMLDivElement | null>(null);
+    const peersRef = useRef<Record<number, RTCPeerConnection>>([]);
 
+
+    const createVideoContainer = (id: number, stream: MediaStream) => {
+        const oldVideoElement = document.getElementById(id.toString());
+        oldVideoElement?.remove();
+        const videoElement = document.createElement("video");
+        videoElement.id = id.toString();
+        videoElement.className = "w-full h-full rounded";
+        videoElement.autoplay = true;
+        videoElement.muted = true;
+        videoElement.srcObject = stream;
+        videoContainerRef.current?.append(videoElement);
+    };
 
     const createMyVideoStream = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            setLocalStream(stream);
+            createVideoContainer(userId, stream)
+            return stream;
+
         } catch (error) {
-            console.error('Error accessing camera and microphone :', error);
+            console.error('Error  accessing camera and microphone :', error);
         }
     };
 
-    const findPeer = (id: number) => {
-        return peersRef.current[id];
-    }
 
-    const createPeer = async (targetId: number): Promise<RTCPeerConnection> => {
-        const peer =  new RTCPeerConnection(servers);
+    const createPeer = async (targetId: number, stream: MediaStream): Promise<RTCPeerConnection> => {
+        const peer = new RTCPeerConnection(servers);
 
-        localStream.getTracks().forEach((track) => {
-            peer.addTrack(track, localStream);
-        });
+        stream.getTracks().forEach(track => {
+            peer.addTrack(track, stream);
+        })
+
 
         peer.onicecandidate = (event) => {
-            if (event.candidate) {
-                axios.post(route("handshake"), {
-                    reciver_id: targetId,
-                    data: JSON.stringify({
-                        type: 'candidate',
-                        data: event.candidate
-                    }),
-                });
-            } else {
-                console.log('ICE Gathering Complete');
-            }
+            if (!event.candidate) return console.log(`${targetId} : ICE Gathering  Complete`);
+
+            axios.post(route("handshake"), {
+                reciver_id: targetId,
+                data: JSON.stringify({
+                    type: 'candidate',
+                    data: event.candidate
+                }),
+            });
+
         };
 
         peer.ontrack = async (event) => {
-            console.log("GOT TRACK " + targetId);
-            setRemoteStreams(prevState => {
-                let updatedState = { ...prevState };
-                let newStream = event.streams[0];
-
-                if (newStream) {
-                    updatedState[targetId] = newStream;
-                }
-
-                return updatedState;
-            });
+            createVideoContainer(targetId, event.streams[0]);
         }
 
-        peer.onconnectionstatechange = () => {
-            console.log(`${peer.iceConnectionState} for  ${targetId}`)
+        peer.onsignalingstatechange = () => {
+            console.log(`${targetId} : ${peer.signalingState}`);
         };
 
-        peer.onsignalingstatechange = () => {
-            console.log(`${peer.signalingState} for ${targetId}`);
+        peer.onconnectionstatechange = () => {
+            console.log(`${targetId} : ${peer.iceConnectionState}`);
 
             if (peer.iceConnectionState === 'disconnected' ||
                 peer.iceConnectionState === 'failed' ||
                 peer.iceConnectionState === 'closed') {
-
-                setRemoteStreams(prevState => {
-                    let updatedState = { ...prevState };
-                    delete updatedState[targetId];
-                    return updatedState;
-                });
-
-                delete peersRef.current[targetId];
+                reNegotiation(targetId);
             }
         };
 
@@ -110,12 +104,22 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
         return peer;
     }
 
+    const removePeer = (targetId: number) => {
+        const PC = peersRef.current[targetId];
+        if (!PC) return console.error(`${targetId} : removePeer no peer found.`)
 
-    const createOffer = async (targetId: number) => {
+        PC.close();
+        delete peersRef.current[targetId];
+        const oldVideoElement = document.getElementById(targetId.toString());
+        oldVideoElement?.remove();
 
-        let peer = findPeer(targetId);
+    }
+
+    const createOffer = async (targetId: number, stream: MediaStream) => {
+
+        let peer = peersRef.current[targetId];
         if (!peer) {
-            peer = await createPeer(targetId);
+            peer = await createPeer(targetId, stream);
         }
         const offer = await peer.createOffer();
         await peer.setLocalDescription(offer);
@@ -130,45 +134,53 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
 
 
     const handleIncomingOffer = async (sender_id: number, offer: RTCSessionDescriptionInit) => {
-        const peer = findPeer(sender_id);
-        if (peer) {
+        const peer = peersRef.current[sender_id];
+        if (!peer) return console.error(`${sender_id} : handleIncomingOffer no peer found.`);
 
-            await peer.setRemoteDescription(offer);
-            const answer = await peer.createAnswer();
-            await peer.setLocalDescription(answer);
+        await peer.setRemoteDescription(offer);
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
+        await axios.post(route("handshake"), {
+            reciver_id: sender_id,
+            data: JSON.stringify(answer),
+        });
 
-            await axios.post(route("handshake"), {
-                reciver_id: sender_id,
-                data: JSON.stringify(answer),
-            });
 
-        } else {
-            console.error(`ERROR ON handleIncomingOffer no peer ${sender_id} found.`);
-        }
     }
 
     const handleIncomingAnswer = async (sender_id: number, answer: RTCSessionDescriptionInit) => {
-        const peer = findPeer(sender_id);
-        if (peer) {
-            await peer.setRemoteDescription(answer);
-            console.log("ANSWER ACCEPTED")
-        } else {
-            console.error(`ERROR  ON handleIncomingAnswer no peer ${sender_id} found.`);
+        const peer = peersRef.current[sender_id];
+        if (!peer) return console.error(`${sender_id} : handleIncomingAnswer no peer found.`);
+
+        await peer.setRemoteDescription(answer);
+
+        if (peer.iceConnectionState !== 'connected') {
+            reNegotiation(sender_id);
         }
+
     }
 
     const handleIncomingCandidate = async (sender_id: number, candidate: RTCIceCandidate) => {
-        const peer = findPeer(sender_id);
-        if (peer) {
-            await peer.addIceCandidate(candidate);
-        } else {
-            console.error(`ERROR  ON handleIncomingCandidate no peer ${sender_id} found.`);
-        }
+        const peer = peersRef.current[sender_id];
+        if (!peer) return console.error(`${sender_id} : handleIncomingCandidate no peer found.`);
+
+        await peer.addIceCandidate(candidate);
+    }
+
+    const reNegotiation = async (targetId: number) => {
+        const peer = peersRef.current[targetId];
+        if (!peer) return console.error(`ERROR  ON reNegotiation no peer ${targetId} found.`);
+
+        const offer = await peer.createOffer();
+        await peer.setLocalDescription(offer);
+        await axios.post(route("handshake"), {
+            reciver_id: targetId,
+            data: JSON.stringify(offer),
+        });
     }
 
     useEffect(() => {
         if (userId) {
-            createMyVideoStream();
             (window as any).Echo.private(`handshake.${userId}`)
                 .listen("SendHandShake", async ({ sender_id, data }: { sender_id: number, data: string }) => {
                     try {
@@ -194,7 +206,7 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
         return () => {
             (window as any).Echo.leave(`handshake.${userId}`);
         }
-    }, [userId]);
+    }, [userId, peersRef]);
 
 
     // useEffect(() => {
@@ -221,9 +233,10 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
         setIsScreenSharing,
         isCallMissed,
         setIsCallMissed,
-        localStream,
-        remoteStreams,
+        videoContainerRef,
         createPeer,
-        createOffer
+        removePeer,
+        createOffer,
+        createMyVideoStream
     }
 }
