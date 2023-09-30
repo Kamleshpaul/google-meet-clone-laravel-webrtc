@@ -76,7 +76,14 @@ export default function Meeting({ auth, id }: MeetingProps) {
             const stream = await createMyVideoStream();
 
             if (!stream) {
-                return alert('No Video and Audio found.')
+                return toast({
+                    title: 'No Video and Audio found.',
+                    status:"error",
+                    position:"top-right",
+                    variant: 'left-accent',
+                    duration: 15000,
+                    isClosable: true,
+                });
             }
 
             toast({
@@ -117,6 +124,19 @@ export default function Meeting({ auth, id }: MeetingProps) {
         };
     }, [id]);
 
+
+    useEffect(() => {
+        const handleBeforeUnload = (e:BeforeUnloadEvent) => {
+            e.preventDefault();
+            e.returnValue = 'Please end the call ';
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
+    }, []);
 
     return (
         <div className="relative w-screen h-screen bg-black opacity-90">
