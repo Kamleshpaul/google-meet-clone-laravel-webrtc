@@ -1,13 +1,14 @@
 import { Head, router } from "@inertiajs/react";
 import PrimaryButton from "@/Components/PrimaryButton";
-import { AiOutlineAudio, AiOutlineAudioMuted } from "react-icons/ai";
+import { AiOutlineAudio, AiOutlineAudioMuted, AiOutlineClose, AiOutlineCopy } from "react-icons/ai";
 import { BsCameraVideo, BsCameraVideoOff } from "react-icons/bs";
 import { LuScreenShare, LuScreenShareOff } from "react-icons/lu";
 import { HiPhoneMissedCall } from "react-icons/hi";
 import { useWebRTC, WebRTCState } from "@/hooks/useWebRTC";
 import { PageProps, User } from "@/types";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Moment from "react-moment";
+import { useToast } from '@chakra-ui/react'
 
 interface MeetingProps extends PageProps {
     id: string;
@@ -29,6 +30,10 @@ export default function Meeting({ auth, id }: MeetingProps) {
         destroyConnection
     }: WebRTCState = useWebRTC({ userId: auth?.user?.id });
 
+    const toast = useToast()
+
+    const [showInviteModal, setshowInviteModal] = useState(true);
+
     const toggleAudio = () => {
         setIsAudioMuted(!isAudioMuted);
     };
@@ -43,9 +48,28 @@ export default function Meeting({ auth, id }: MeetingProps) {
 
     const endCall = () => {
         destroyConnection();
+        toast({
+            title: 'Call End.',
+            status:"success",
+            position:"top-right",
+            variant: 'left-accent',
+            duration: 2000,
+            isClosable: true,
+        })
         router.visit(`/dashboard`);
     }
 
+    const handleCopy = () => {
+        navigator.clipboard.writeText(window.location.href);
+        toast({
+            title: 'Copied.',
+            status:"success",
+            position:"top-right",
+            variant: 'left-accent',
+            duration: 2000,
+            isClosable: true,
+        })
+    }
 
     useEffect(() => {
         const initializeVideoStream = async () => {
@@ -55,6 +79,14 @@ export default function Meeting({ auth, id }: MeetingProps) {
                 return alert('No Video and Audio found.')
             }
 
+            toast({
+                title: 'Call Started.',
+                status:"success",
+                position:"top-right",
+                variant: 'left-accent',
+                duration: 2000,
+                isClosable: true,
+            })
             if (id) {
                 (window as any).Echo.join(`meeting.${id}`)
                     .here(async (users: User[]) => {
@@ -99,13 +131,14 @@ export default function Meeting({ auth, id }: MeetingProps) {
                 className="grid h-full grid-cols-1 gap-2 px-10 pt-10 pb-32 sm:grid-cols-2 md:grid-cols-3">
 
             </div>
+            {/* Video grid container */}
 
             {/*footer*/}
             <div className="absolute grid w-screen grid-cols-3 px-10 text-white bottom-5">
                 <div className="flex">
                     <div className="mr-1 cursor-not-allowed">
                         <Moment className="mr-1" format="h:mm A" />
-                        
+
                         |
                     </div>
                     <div>{id}</div>
@@ -149,6 +182,28 @@ export default function Meeting({ auth, id }: MeetingProps) {
                 </div>
             </div>
             {/*footer*/}
+
+
+            {/*pop new meeting*/}
+            <div className={`absolute p-5 bg-white rounded-lg w-80 bottom-20 left-10 ${showInviteModal ? '' : 'hidden'}`}>
+                <div className="flex justify-between mb-5">
+                    <h1 className="text-lg font-bold text">Your meeting's ready</h1>
+                    <button onClick={() => { setshowInviteModal(false) }}><AiOutlineClose /></button>
+                </div>
+
+                <p className="mb-5 text-sm">Share this meeting link with others you want in the meeting</p>
+
+                <div className="flex justify-between p-3 mb-5 bg-gray-200 rounded">
+                    <div className="text-lg text">{window.location.pathname.substring(1)}</div>
+                    <button onClick={handleCopy} >
+                        <AiOutlineCopy className="cursor-pointer w-7 h-7" />
+                    </button>
+
+                </div>
+
+            </div>
+            {/*pop new meeting*/}
+
         </div>
     );
 }

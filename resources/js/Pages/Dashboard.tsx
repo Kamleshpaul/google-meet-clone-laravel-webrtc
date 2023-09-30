@@ -13,7 +13,6 @@ export default function Dashboard({ auth }: PageProps) {
     const generateNewRandomString = useRandomStringGenerator();
 
 
-
     const newMeetingHandle = () => {
         const randomString = generateNewRandomString(11);
         router.visit(`/meeting/${randomString}`);
