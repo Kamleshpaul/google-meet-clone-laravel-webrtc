@@ -198,7 +198,7 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
         const peer = peersRef.current[targetId];
         if (!peer) return console.error(`ERROR  ON reNegotiation no peer ${targetId} found.`);
 
-        const offer = await peer.createOffer();
+        const offer = await peer.createOffer({ iceRestart: true });
         await peer.setLocalDescription(offer);
         await axios.post(route("handshake"), {
             reciver_id: targetId,
