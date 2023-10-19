@@ -115,7 +115,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
             if (!event?.candidate) return;
             if (peer.iceConnectionState == 'connected') return console.log("renagitaion");
 
-            (window as any).Echo.join(`meeting.${meetingCode}`)
+            (window as any).Echo.join(`handshake.${meetingCode}`)
                 .whisper('negotiation', {
                     data: JSON.stringify({
                         type: 'candidate',
@@ -197,7 +197,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
         const offer = await peer.createOffer();
         await peer.setLocalDescription(offer);
 
-        (window as any).Echo.join(`meeting.${meetingCode}`)
+        (window as any).Echo.join(`handshake.${meetingCode}`)
             .whisper('negotiation', {
                 data: JSON.stringify(offer),
                 sender_id: userId,
@@ -209,11 +209,8 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
 
 
     const handleIncomingOffer = async (sender_id: number, offer: RTCSessionDescriptionInit) => {
-        let peer = peersRef.current[sender_id];
-        if (!peer) {
-            peer = await createPeer(sender_id, localStream);
-        }
-        // if (!peer) return console.error(`${sender_id} : handleIncomingOffer no peer found.`);
+        const peer = peersRef.current[sender_id];
+        if (!peer) return console.error(`${sender_id} : handleIncomingOffer no peer found.`);
         if (peer.signalingState !== 'stable') return;
 
         await peer.setRemoteDescription(offer);
@@ -221,7 +218,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
 
-        (window as any).Echo.join(`meeting.${meetingCode}`)
+        (window as any).Echo.join(`handshake.${meetingCode}`)
             .whisper('negotiation', {
                 data: JSON.stringify(answer),
                 sender_id: userId,
@@ -233,7 +230,6 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
         const peer = peersRef.current[sender_id];
         if (!peer) return console.error(`${sender_id} : handleIncomingAnswer no peer found.`);
         await peer.setRemoteDescription(answer);
-
     }
 
     const handleIncomingCandidate = async (sender_id: number, candidate: RTCIceCandidate) => {
@@ -255,7 +251,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
         const offer = await peer.createOffer({ iceRestart: true });
         await peer.setLocalDescription(offer);
 
-        (window as any).Echo.join(`meeting.${meetingCode}`)
+        (window as any).Echo.join(`handshake.${meetingCode}`)
             .whisper('negotiation', {
                 data: JSON.stringify(offer),
                 sender_id: userId,
@@ -284,7 +280,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
 
             reNegotiation(parseInt(targetId));
 
-            (window as any).Echo.join(`meeting.${meetingCode}`)
+            (window as any).Echo.join(`handshake.${meetingCode}`)
                 .whisper('negotiation', {
                     data: JSON.stringify({
                         type: "toggle",
@@ -381,7 +377,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
 
     useEffect(() => {
         if (meetingCode) {
-            (window as any).Echo.join(`meeting.${meetingCode}`)
+            (window as any).Echo.join(`handshake.${meetingCode}`)
                 .listenForWhisper("negotiation", async ({ sender_id, reciver_id, data }: { sender_id: number, reciver_id: number, data: string }) => {
                     if (reciver_id != userId) return;
 
@@ -420,7 +416,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
         }
 
         return () => {
-            (window as any).Echo.leave(`meeting.${meetingCode}`);
+            (window as any).Echo.leave(`handshake.${meetingCode}`);
         }
     }, [meetingCode, peersRef]);
 

@@ -6,7 +6,7 @@ import { LuScreenShare, LuScreenShareOff } from "react-icons/lu";
 import { HiPhoneMissedCall } from "react-icons/hi";
 import { useWebRTC, WebRTCState } from "@/hooks/useWebRTC";
 import { PageProps, User } from "@/types";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Moment from "react-moment";
 import { Avatar, useToast } from '@chakra-ui/react'
 import SoundWaveCanvas from "@/Components/SoundWaveCanvas";
@@ -35,7 +35,7 @@ export default function Meeting({ auth, id }: MeetingProps) {
     const toast = useToast()
 
     const [showInviteModal, setshowInviteModal] = useState(false);
-    const [users, setUsers] = useState<User[]>([]);
+    const [meetingUsers, setMeetingUsers] = useState<User[]>([]);
 
 
     const endCall = () => {
@@ -77,7 +77,7 @@ export default function Meeting({ auth, id }: MeetingProps) {
             if (id) {
                 (window as any).Echo.join(`meeting.${id}`)
                     .here(async (users: User[]) => {
-                        setUsers(users);
+                        setMeetingUsers(users);
                         users.map(async (user) => {
                             if (user.id !== auth.user.id) {
                                 await createPeer(user.id, stream);
@@ -85,11 +85,12 @@ export default function Meeting({ auth, id }: MeetingProps) {
                         });
                     })
                     .joining(async (user: User) => {
-                        setUsers(users);
+                        console.log({ user });
+                        setMeetingUsers(prev => [...prev, user]);
                         createOffer(user.id, stream);
                     })
                     .leaving((user: User) => {
-                        setUsers(prev => prev.filter(u => u.id != user.id));
+                        setMeetingUsers(prev => prev.filter(u => u.id != user.id));
                         removePeer(user.id);
                     })
                     .error((error: any) => {
@@ -105,6 +106,7 @@ export default function Meeting({ auth, id }: MeetingProps) {
         };
     }, [id]);
 
+    console.log({ meetingUsers });
 
     // useEffect(() => {
     //     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -152,21 +154,21 @@ export default function Meeting({ auth, id }: MeetingProps) {
                 </div>
 
 
-                {Object.keys(remoteStreams).map((index) => (
-                    <div key={index}>
-                        <div key={`avatar-${index}`} className={`flex items-center justify-center bg-gray-400 ${!remoteStreams[parseInt(index)].videoEnabled ? '' : 'hidden'}`} style={{ width: "30rem", height: "18rem" }}>
-                            <Avatar name={users.find(u => u.id == parseInt(index))?.name} size='2xl' />
-                            {remoteStreams[parseInt(index)].audioEnabled && <SoundWaveCanvas mediaStream={remoteStreams[parseInt(index)].stream} />}
+                {meetingUsers.filter(x => x.id != auth.user.id).map((user) => (
+                    <div key={user.id}>
+                        <div className={`flex items-center justify-center bg-gray-400 ${!remoteStreams[user.id]?.videoEnabled ? '' : 'hidden'}`} style={{ width: "30rem", height: "18rem" }} >
+                            <Avatar name={meetingUsers.find(u => u.id == user.id)?.name} size='2xl' />
+                            {remoteStreams[user.id]?.audioEnabled && <SoundWaveCanvas mediaStream={remoteStreams[user.id].stream} />}
                         </div>
-                        {remoteStreams[parseInt(index)].videoEnabled && (
+                        {remoteStreams[user.id]?.videoEnabled && (
                             <video
-                                key={`video-${index}`}
-                                id={index}
+                                muted
+                                id={user.id.toString()}
                                 autoPlay
                                 className="w-full h-full rounded"
                                 ref={(videoRef) => {
                                     if (videoRef && localStream) {
-                                        (videoRef as HTMLVideoElement).srcObject = remoteStreams[parseInt(index)].stream;
+                                        (videoRef as HTMLVideoElement).srcObject = remoteStreams[user.id].stream;
                                     }
                                 }}
                             >
