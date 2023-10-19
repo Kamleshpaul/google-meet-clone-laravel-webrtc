@@ -26,6 +26,6 @@ Broadcast::channel('meeting.{meetingId}', function ($user, $id) {
 });
 
 
-Broadcast::channel('handshake.{id}', function ($user, $id) {
-    return (int)$user->id === (int)$id;
+Broadcast::channel('handshake.{meetingCode}', function ($user, $id) {
+    return true;
 });

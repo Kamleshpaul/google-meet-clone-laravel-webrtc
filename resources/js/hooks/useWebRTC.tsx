@@ -12,112 +12,141 @@ const servers = {
 
 export interface WebRTCState {
     isAudioMuted: boolean;
-    setIsAudioMuted: React.Dispatch<React.SetStateAction<boolean>>;
     isVideoOff: boolean;
-    setIsVideoOff: React.Dispatch<React.SetStateAction<boolean>>;
     isScreenSharing: boolean;
     setIsScreenSharing: React.Dispatch<React.SetStateAction<boolean>>;
-    isCallMissed: boolean;
-    setIsCallMissed: React.Dispatch<React.SetStateAction<boolean>>;
-    createOffer: (targetId: number, stream: MediaStream) => void;
+    createOffer: (targetId: number, stream?: MediaStream) => void;
     removePeer: (targetId: number) => void;
-    createPeer: (targetId: number, stream: MediaStream) => Promise<RTCPeerConnection>;
-    videoContainerRef: React.RefObject<HTMLDivElement>;
-    createMyVideoStream: () => Promise<MediaStream | undefined>
-    destroyConnection: () => void
+    createPeer: (targetId: number, stream?: MediaStream) => Promise<RTCPeerConnection>;
+    createMyVideoStream: (video: boolean, audio: boolean) => Promise<MediaStream>
+    destroyConnection: () => Promise<void>;
+    localStream: MediaStream;
+    remoteStreams: Record<number, { stream: MediaStream, audioEnabled: boolean, videoEnabled: boolean }>;
+    isToggling: string | null
+    toggleMic: () => void;
+    toggleVideo: () => void;
 }
 
-export function useWebRTC({ userId }: { userId: number }): WebRTCState {
-    const [isAudioMuted, setIsAudioMuted] = useState<boolean>(false);
-    const [isVideoOff, setIsVideoOff] = useState<boolean>(false);
+export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId: number }): WebRTCState {
+    const [isAudioMuted, setIsAudioMuted] = useState<boolean>(true);
+    const [isVideoOff, setIsVideoOff] = useState<boolean>(true);
     const [isScreenSharing, setIsScreenSharing] = useState<boolean>(false);
-    const [isCallMissed, setIsCallMissed] = useState<boolean>(false);
+    const [isToggling, setIsToggling] = useState<string | null>(null);
 
-    const videoContainerRef = useRef<HTMLDivElement | null>(null);
     const peersRef = useRef<Record<number, RTCPeerConnection>>([]);
-    const localStreamRef = useRef(new MediaStream);
+    const renegotiatingRef = useRef(false);
 
+    const [localStream, setLocalStream] = useState<MediaStream>(new MediaStream());
+    const [remoteStreams, setRemoteStreams] = useState<Record<number, { stream: MediaStream, audioEnabled: boolean, videoEnabled: boolean }>>({});
 
-    const createVideoContainer = (id: number, stream: MediaStream) => {
-        const oldVideoElement = document.getElementById(id.toString());
-        oldVideoElement?.remove();
-        const videoElement = document.createElement("video");
-        videoElement.id = id.toString();
-        videoElement.className = "w-full h-full rounded";
-        videoElement.autoplay = true;
-        videoElement.muted = true;
-        videoElement.srcObject = stream;
-        videoContainerRef.current?.append(videoElement);
-    };
+    const createStream = async ({ audio, video }: { audio: boolean, video: boolean }) => {
 
-    const createMyVideoStream = async () => {
         try {
-
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            setIsAudioMuted(!stream.getAudioTracks()[0]?.enabled);
-            setIsVideoOff(!stream.getVideoTracks()[0]?.enabled);
-            createVideoContainer(userId, stream)
-            localStreamRef.current = stream;
+            const stream = await navigator.mediaDevices.getUserMedia({ audio, video });
             return stream;
-
         } catch (error) {
-            console.error('Error  accessing camera and microphone :', error);
-        }
-    };
-
-    const destroyConnection = () => {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-
-        Object.keys(peersRef.current).forEach((targetId) => {
-            const peer = peersRef.current[parseInt(targetId)];
-            if (peer) {
-                peer.ontrack = null;
-                peer.onicecandidate = null;
-                peer.onsignalingstatechange = null;
-                peer.onconnectionstatechange = null;
-                peer.close();
-                console.log("DESTROY " + targetId);
-            }
-        });
-
-        peersRef.current = [];
-        if (videoContainerRef.current) {
-            videoContainerRef.current.innerHTML = "";
+            console.error('Error accessing camera and microphone:', error);
+            return new MediaStream();
         }
     }
 
+    const createMyVideoStream = async (video: boolean, audio: boolean) => {
 
-    const createPeer = async (targetId: number, stream: MediaStream): Promise<RTCPeerConnection> => {
+        try {
+            const stream = await createStream({ video, audio });
+            setIsAudioMuted(!stream.getAudioTracks()[0]?.enabled);
+            setIsVideoOff(!stream.getVideoTracks()[0]?.enabled);
+            setLocalStream(stream);
+
+            return stream;
+
+        } catch (error) {
+            const emptyStream = new MediaStream();
+            setIsAudioMuted(true);
+            setIsVideoOff(true);
+            setLocalStream(emptyStream);
+            console.error('Error  accessing camera and microphone :', error);
+            return emptyStream;
+        }
+    };
+
+    const destroyConnection = async () => {
+        localStream?.getTracks().forEach(track => track.stop());
+
+        Object.values(remoteStreams).forEach(({ stream }) => {
+            stream.getTracks().forEach(track => track.stop());
+        });
+
+        const cleanupPromises = Object.keys(peersRef.current).map(async (targetId) => {
+            return new Promise<void>((resolve) => {
+                const peer = peersRef.current[parseInt(targetId)];
+                if (peer) {
+                    peer.ontrack = null;
+                    peer.onicecandidate = null;
+                    peer.onsignalingstatechange = null;
+                    peer.onconnectionstatechange = null;
+
+                    peer.close();
+                    delete peersRef.current[parseInt(targetId)];
+                    console.log("DESTROY " + targetId);
+                    resolve();
+                }
+            });
+        });
+
+        await Promise.all(cleanupPromises);
+        peersRef.current = [];
+        console.log("All connections destroyed");
+    }
+
+
+    const createPeer = async (targetId: number, stream?: MediaStream): Promise<RTCPeerConnection> => {
         const peer = new RTCPeerConnection(servers);
 
-        stream.getTracks().forEach(track => {
-            peer.addTrack(track, stream);
-        })
+        if (stream) {
+            stream.getTracks().forEach(track => {
+                peer.addTrack(track, stream);
+            })
+
+        }
 
 
         peer.onicecandidate = (event) => {
-            if (!event.candidate) return console.log(`${targetId} : ICE Gathering  Complete`);
+            if (!event?.candidate) return;
+            if (peer.iceConnectionState == 'connected') return console.log("renagitaion");
 
-            axios.post(route("handshake"), {
-                reciver_id: targetId,
-                data: JSON.stringify({
-                    type: 'candidate',
-                    data: event.candidate
-                }),
-            });
-
+            (window as any).Echo.join(`meeting.${meetingCode}`)
+                .whisper('negotiation', {
+                    data: JSON.stringify({
+                        type: 'candidate',
+                        data: event.candidate
+                    }),
+                    sender_id: userId,
+                    reciver_id: targetId
+                })
         };
 
         peer.ontrack = async (event) => {
-            createVideoContainer(targetId, event.streams[0]);
+            console.log("triggered new TRACK");
+            const remoteStream = event.streams[0];
+            const audioEnabled = remoteStream.getAudioTracks()[0]?.enabled;
+            const videoEnabled = remoteStream.getVideoTracks()[0]?.enabled;
+            setRemoteStreams(prevStreams => ({
+                ...prevStreams,
+                [targetId]: {
+                    stream: remoteStream,
+                    audioEnabled,
+                    videoEnabled,
+                },
+            }));
         }
 
         peer.onsignalingstatechange = () => {
-            console.log(`${targetId} : ${peer.signalingState}`);
+            console.log(`${targetId} : signalingState ${peer.signalingState}`);
         };
 
         peer.onconnectionstatechange = () => {
-            console.log(`${targetId} : ${peer.iceConnectionState}`);
+            console.log(`${targetId} : iceConnectionState ${peer.iceConnectionState}`);
 
             if (peer.iceConnectionState === 'disconnected' ||
                 peer.iceConnectionState === 'failed' ||
@@ -126,23 +155,40 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
             }
         };
 
+        peer.oniceconnectionstatechange = () => {
+            if (peer.iceConnectionState === "failed") {
+                peer.restartIce();
+            }
+        }
 
         peersRef.current[targetId] = peer;
         return peer;
     }
 
     const removePeer = (targetId: number) => {
-        const PC = peersRef.current[targetId];
-        if (!PC) return console.error(`${targetId} : removePeer no peer found.`)
+        const peer = peersRef.current[targetId];
+        if (!peer) return console.error(`${targetId} : removePeer no peer found.`)
+        peer.ontrack = null;
+        peer.onicecandidate = null;
+        peer.onsignalingstatechange = null;
+        peer.onconnectionstatechange = null;
 
-        PC.close();
+        peer.close();
         delete peersRef.current[targetId];
-        const oldVideoElement = document.getElementById(targetId.toString());
-        oldVideoElement?.remove();
+        const emptyStream = new MediaStream();
+        setRemoteStreams(prevStreams => ({
+            ...prevStreams,
+            [targetId]: {
+                stream: emptyStream,
+                audioEnabled: false,
+                videoEnabled: false,
+            },
+        }));
 
+        console.log("DESTROY " + targetId);
     }
 
-    const createOffer = async (targetId: number, stream: MediaStream) => {
+    const createOffer = async (targetId: number, stream?: MediaStream) => {
 
         let peer = peersRef.current[targetId];
         if (!peer) {
@@ -151,96 +197,127 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
         const offer = await peer.createOffer();
         await peer.setLocalDescription(offer);
 
-        await axios.post(route("handshake"), {
-            reciver_id: targetId,
-            data: JSON.stringify(offer),
-        });
+        (window as any).Echo.join(`meeting.${meetingCode}`)
+            .whisper('negotiation', {
+                data: JSON.stringify(offer),
+                sender_id: userId,
+                reciver_id: targetId
+            })
     }
 
 
 
 
     const handleIncomingOffer = async (sender_id: number, offer: RTCSessionDescriptionInit) => {
-        const peer = peersRef.current[sender_id];
-        if (!peer) return console.error(`${sender_id} : handleIncomingOffer no peer found.`);
+        let peer = peersRef.current[sender_id];
+        if (!peer) {
+            peer = await createPeer(sender_id, localStream);
+        }
+        // if (!peer) return console.error(`${sender_id} : handleIncomingOffer no peer found.`);
+        if (peer.signalingState !== 'stable') return;
 
         await peer.setRemoteDescription(offer);
+
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
-        await axios.post(route("handshake"), {
-            reciver_id: sender_id,
-            data: JSON.stringify(answer),
-        });
 
-
+        (window as any).Echo.join(`meeting.${meetingCode}`)
+            .whisper('negotiation', {
+                data: JSON.stringify(answer),
+                sender_id: userId,
+                reciver_id: sender_id
+            })
     }
 
     const handleIncomingAnswer = async (sender_id: number, answer: RTCSessionDescriptionInit) => {
         const peer = peersRef.current[sender_id];
         if (!peer) return console.error(`${sender_id} : handleIncomingAnswer no peer found.`);
-
         await peer.setRemoteDescription(answer);
-
-        if (peer.iceConnectionState !== 'connected') {
-            reNegotiation(sender_id);
-        }
 
     }
 
     const handleIncomingCandidate = async (sender_id: number, candidate: RTCIceCandidate) => {
         const peer = peersRef.current[sender_id];
         if (!peer) return console.error(`${sender_id} : handleIncomingCandidate no peer found.`);
-
+        if (!candidate) return console.log(`${sender_id} : handleIncomingCandidate candidate null.`);
+        if (peer.iceConnectionState === 'connected') return console.log(`${sender_id} : handleIncomingCandidate candidate connected.`);
         await peer.addIceCandidate(candidate);
     }
 
     const reNegotiation = async (targetId: number) => {
-        const peer = peersRef.current[targetId];
-        if (!peer) return console.error(`ERROR  ON reNegotiation no peer ${targetId} found.`);
+        if (renegotiatingRef.current) return;
 
-        const offer = await peer.createOffer();
+        // Set renegotiatingRef to true to avoid multiple re-negotiation attempts
+        renegotiatingRef.current = true;
+
+        let peer = peersRef.current[targetId];
+
+        const offer = await peer.createOffer({ iceRestart: true });
         await peer.setLocalDescription(offer);
-        await axios.post(route("handshake"), {
-            reciver_id: targetId,
-            data: JSON.stringify(offer),
-        });
+
+        (window as any).Echo.join(`meeting.${meetingCode}`)
+            .whisper('negotiation', {
+                data: JSON.stringify(offer),
+                sender_id: userId,
+                reciver_id: targetId
+            })
+
+        renegotiatingRef.current = false;
     }
 
-    const replaceTrack = (screenTrack: MediaStreamTrack) => {
-        Object.keys(peersRef.current).forEach(targetId => {
+    const replaceRemotesStream = (newStream: MediaStream | null, audioEnabled: boolean, videoEnabled: boolean) => {
+        Object.keys(peersRef.current).forEach(async targetId => {
             const peer = peersRef.current[parseInt(targetId)];
-            if (peer) {
-                const senders = peer.getSenders();
-                senders.forEach(sender => {
-                    if (sender.track?.kind === 'video') {
-                        sender.replaceTrack(screenTrack);
+
+            if (newStream) {
+                newStream.getTracks().forEach(track => {
+                    peer.addTrack(track, newStream);
+                })
+            } else {
+                peer.getSenders().forEach(sender => {
+                    if (sender.track && (sender.track.kind === 'audio' || sender.track.kind === 'video')) {
+                        peer.removeTrack(sender);
                     }
                 });
             }
+
+
+            reNegotiation(parseInt(targetId));
+
+            (window as any).Echo.join(`meeting.${meetingCode}`)
+                .whisper('negotiation', {
+                    data: JSON.stringify({
+                        type: "toggle",
+                        audioEnabled: audioEnabled,
+                        videoEnabled: videoEnabled
+                    }),
+                    sender_id: userId,
+                    reciver_id: targetId
+                })
         });
     }
 
     const shareScreen = async () => {
         try {
+            setIsScreenSharing(true);
             const screenStream = await navigator.mediaDevices.getDisplayMedia();
             const screenTrack = screenStream.getTracks()[0];
+
+            localStream?.getTracks().forEach(track => track.stop());
+            replaceRemotesStream(screenStream, !isAudioMuted, true);
 
             let video = document.getElementById(userId.toString()) as HTMLVideoElement;
             video.srcObject = screenStream;
 
-            replaceTrack(screenTrack);
-
-            screenTrack.onended = () => {
-
+            screenTrack.onended = async () => {
                 setIsScreenSharing(false);
 
-                const camVideo = localStreamRef
-                    .current
-                    .getTracks()
-                    .find((track) => track.kind === "video") as MediaStreamTrack;
+                const newStream = await createStream({ video: !isVideoOff, audio: !isAudioMuted });
+                if (!newStream) return console.log("Share Screen newStream not found.");
+                setLocalStream(newStream);
+                video.srcObject = newStream
+                replaceRemotesStream(newStream, isAudioMuted, isVideoOff);
 
-                replaceTrack(camVideo);
-                video.srcObject = localStreamRef.current
             };
 
         } catch (error) {
@@ -249,12 +326,69 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
         }
     };
 
+
+    const toggleMic = async () => {
+        if (isToggling == 'audio') return;
+        if (isVideoOff && !isAudioMuted) {
+            localStream.getTracks().forEach(track => track.stop());
+            replaceRemotesStream(null, !isAudioMuted, isVideoOff);
+            setLocalStream(new MediaStream());
+            setIsToggling(null);
+            setIsAudioMuted(prevValue => !prevValue);
+            return;
+        }
+
+        setIsToggling('audio');
+
+        localStream.getTracks().forEach(track => track.stop());
+        const newStream = await createStream({ audio: isAudioMuted, video: !isVideoOff });
+        if (!newStream) return console.log("newStream not found on toggle mic")
+        setLocalStream(newStream);
+        replaceRemotesStream(newStream, isAudioMuted, !isVideoOff);
+
+        setIsAudioMuted(prevValue => !prevValue);
+        setIsToggling(null);
+    };
+
+
+    const toggleVideo = async () => {
+        if (isToggling === 'video') return;
+
+        setIsToggling('video');
+
+        if (isAudioMuted && !isVideoOff) {
+            localStream.getTracks().forEach(track => track.stop());
+            replaceRemotesStream(null, !isAudioMuted, isVideoOff);
+            setLocalStream(new MediaStream());
+            setIsToggling(null);
+            setIsVideoOff(prevValue => !prevValue);
+            return;
+        }
+
+        localStream.getTracks().forEach(track => track.stop());
+
+        const newStream = await createStream({ video: isVideoOff, audio: !isAudioMuted });
+        if (!newStream) return console.log("newStream not found on toggle Video")
+
+        setLocalStream(newStream);
+        replaceRemotesStream(newStream, !isAudioMuted, isVideoOff);
+
+        setIsVideoOff(prevValue => !prevValue);
+        setIsToggling(null);
+    };
+
+
+
     useEffect(() => {
-        if (userId) {
-            (window as any).Echo.private(`handshake.${userId}`)
-                .listen("SendHandShake", async ({ sender_id, data }: { sender_id: number, data: string }) => {
+        if (meetingCode) {
+            (window as any).Echo.join(`meeting.${meetingCode}`)
+                .listenForWhisper("negotiation", async ({ sender_id, reciver_id, data }: { sender_id: number, reciver_id: number, data: string }) => {
+                    if (reciver_id != userId) return;
+
                     try {
                         const JSON_DATA = JSON.parse(data);
+                        console.log(JSON_DATA.type);
+
                         if (JSON_DATA.type === 'offer') {
                             handleIncomingOffer(sender_id, JSON_DATA);
                         }
@@ -264,7 +398,19 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
                         }
 
                         if (JSON_DATA.type === 'candidate') {
-                            handleIncomingCandidate(sender_id, JSON_DATA);
+                            handleIncomingCandidate(sender_id, JSON_DATA.data);
+                        }
+
+                        if (JSON_DATA.type === 'toggle') {
+                            const { audioEnabled, videoEnabled } = JSON_DATA;
+                            setRemoteStreams(prevStreams => ({
+                                ...prevStreams,
+                                [sender_id]: {
+                                    ...prevStreams[sender_id],
+                                    audioEnabled,
+                                    videoEnabled,
+                                },
+                            }));
                         }
 
                     } catch (error) {
@@ -274,24 +420,27 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
         }
 
         return () => {
-            (window as any).Echo.leave(`handshake.${userId}`);
+            (window as any).Echo.leave(`meeting.${meetingCode}`);
         }
-    }, [userId, peersRef]);
+    }, [meetingCode, peersRef]);
+
 
 
     useEffect(() => {
-        const audioTrack = localStreamRef.current?.getAudioTracks()[0];
+        const audioTrack = localStream.getAudioTracks()[0];
         if (audioTrack) {
             audioTrack.enabled = !isAudioMuted;
         }
     }, [isAudioMuted]);
 
+
     useEffect(() => {
-        const videoTrack = localStreamRef.current?.getVideoTracks()[0];
+        const videoTrack = localStream.getVideoTracks()[0];
         if (videoTrack) {
             videoTrack.enabled = !isVideoOff;
         }
     }, [isVideoOff]);
+
 
     useEffect(() => {
         if (isScreenSharing) {
@@ -299,20 +448,21 @@ export function useWebRTC({ userId }: { userId: number }): WebRTCState {
         }
     }, [isScreenSharing]);
 
+
     return {
         isAudioMuted,
-        setIsAudioMuted,
         isVideoOff,
-        setIsVideoOff,
         isScreenSharing,
         setIsScreenSharing,
-        isCallMissed,
-        setIsCallMissed,
-        videoContainerRef,
         createPeer,
         removePeer,
         createOffer,
         createMyVideoStream,
-        destroyConnection
+        destroyConnection,
+        localStream,
+        remoteStreams,
+        isToggling,
+        toggleMic,
+        toggleVideo
     }
 }

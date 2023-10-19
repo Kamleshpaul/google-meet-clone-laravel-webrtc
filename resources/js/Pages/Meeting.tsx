@@ -6,9 +6,10 @@ import { LuScreenShare, LuScreenShareOff } from "react-icons/lu";
 import { HiPhoneMissedCall } from "react-icons/hi";
 import { useWebRTC, WebRTCState } from "@/hooks/useWebRTC";
 import { PageProps, User } from "@/types";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Moment from "react-moment";
-import { useToast } from '@chakra-ui/react'
+import { Avatar, useToast } from '@chakra-ui/react'
+import SoundWaveCanvas from "@/Components/SoundWaveCanvas";
 
 interface MeetingProps extends PageProps {
     id: string;
@@ -17,41 +18,32 @@ interface MeetingProps extends PageProps {
 export default function Meeting({ auth, id }: MeetingProps) {
     const {
         isAudioMuted,
-        setIsAudioMuted,
         isVideoOff,
-        setIsVideoOff,
         isScreenSharing,
         setIsScreenSharing,
-        videoContainerRef,
         createOffer,
         createPeer,
         removePeer,
         createMyVideoStream,
-        destroyConnection
-    }: WebRTCState = useWebRTC({ userId: auth?.user?.id });
-
+        destroyConnection,
+        localStream,
+        remoteStreams,
+        isToggling,
+        toggleMic,
+        toggleVideo
+    }: WebRTCState = useWebRTC({ meetingCode: id, userId: auth.user.id });
     const toast = useToast()
 
-    const [showInviteModal, setshowInviteModal] = useState(true);
+    const [showInviteModal, setshowInviteModal] = useState(false);
+    const [users, setUsers] = useState<User[]>([]);
 
-    const toggleAudio = () => {
-        setIsAudioMuted(!isAudioMuted);
-    };
-
-    const toggleVideo = async () => {
-        setIsVideoOff(!isVideoOff);
-    };
-
-    const toggleScreenSharing = () => {
-        setIsScreenSharing(!isScreenSharing);
-    };
 
     const endCall = () => {
         destroyConnection();
         toast({
             title: 'Call End.',
-            status:"success",
-            position:"top-right",
+            status: "success",
+            position: "top-right",
             variant: 'left-accent',
             duration: 2000,
             isClosable: true,
@@ -63,8 +55,8 @@ export default function Meeting({ auth, id }: MeetingProps) {
         navigator.clipboard.writeText(window.location.href);
         toast({
             title: 'Copied.',
-            status:"success",
-            position:"top-right",
+            status: "success",
+            position: "top-right",
             variant: 'left-accent',
             duration: 2000,
             isClosable: true,
@@ -73,23 +65,11 @@ export default function Meeting({ auth, id }: MeetingProps) {
 
     useEffect(() => {
         const initializeVideoStream = async () => {
-            const stream = await createMyVideoStream();
-
-            if (!stream) {
-                return toast({
-                    title: 'No Video and Audio found.',
-                    status:"error",
-                    position:"top-right",
-                    variant: 'left-accent',
-                    duration: 15000,
-                    isClosable: true,
-                });
-            }
-
+            const stream = await createMyVideoStream(true, true);
             toast({
                 title: 'Call Started.',
-                status:"success",
-                position:"top-right",
+                status: "success",
+                position: "top-right",
                 variant: 'left-accent',
                 duration: 2000,
                 isClosable: true,
@@ -97,6 +77,7 @@ export default function Meeting({ auth, id }: MeetingProps) {
             if (id) {
                 (window as any).Echo.join(`meeting.${id}`)
                     .here(async (users: User[]) => {
+                        setUsers(users);
                         users.map(async (user) => {
                             if (user.id !== auth.user.id) {
                                 await createPeer(user.id, stream);
@@ -104,11 +85,11 @@ export default function Meeting({ auth, id }: MeetingProps) {
                         });
                     })
                     .joining(async (user: User) => {
-                        if (stream) {
-                            createOffer(user.id, stream);
-                        }
+                        setUsers(users);
+                        createOffer(user.id, stream);
                     })
                     .leaving((user: User) => {
+                        setUsers(prev => prev.filter(u => u.id != user.id));
                         removePeer(user.id);
                     })
                     .error((error: any) => {
@@ -125,18 +106,18 @@ export default function Meeting({ auth, id }: MeetingProps) {
     }, [id]);
 
 
-    useEffect(() => {
-        const handleBeforeUnload = (e:BeforeUnloadEvent) => {
-            e.preventDefault();
-            e.returnValue = 'Please end the call ';
-        };
+    // useEffect(() => {
+    //     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+    //         e.preventDefault();
+    //         e.returnValue = 'Please end the call ';
+    //     };
 
-        window.addEventListener('beforeunload', handleBeforeUnload);
+    //     window.addEventListener('beforeunload', handleBeforeUnload);
 
-        return () => {
-            window.removeEventListener('beforeunload', handleBeforeUnload);
-        };
-    }, []);
+    //     return () => {
+    //         window.removeEventListener('beforeunload', handleBeforeUnload);
+    //     };
+    // }, []);
 
     return (
         <div className="relative w-screen h-screen bg-black opacity-90">
@@ -146,9 +127,52 @@ export default function Meeting({ auth, id }: MeetingProps) {
                 {auth?.user.name || ""}
             </div>
 
-            {/* Video grid container */}
-            <div ref={videoContainerRef}
+            <div
                 className="grid h-full grid-cols-1 gap-2 px-10 pt-10 pb-32 sm:grid-cols-2 md:grid-cols-3">
+
+                <div>
+                    <div className={`flex items-center justify-center bg-gray-400 ${isVideoOff && !isScreenSharing ? '' : 'hidden'}`} style={{ width: "30rem", height: "18rem" }}>
+                        <Avatar name={auth.user.name} size='2xl' />
+                        {!isAudioMuted && <SoundWaveCanvas mediaStream={localStream} />}
+                    </div>
+                    {!isVideoOff && (
+                        <video
+                            autoPlay
+                            id={auth.user.id.toString()}
+                            muted
+                            className="w-full h-full rounded"
+                            ref={(videoRef) => {
+                                if (videoRef && localStream) {
+                                    (videoRef as HTMLVideoElement).srcObject = localStream;
+                                }
+                            }}
+                        >
+                        </video>
+                    )}
+                </div>
+
+
+                {Object.keys(remoteStreams).map((index) => (
+                    <div key={index}>
+                        <div key={`avatar-${index}`} className={`flex items-center justify-center bg-gray-400 ${!remoteStreams[parseInt(index)].videoEnabled ? '' : 'hidden'}`} style={{ width: "30rem", height: "18rem" }}>
+                            <Avatar name={users.find(u => u.id == parseInt(index))?.name} size='2xl' />
+                            {remoteStreams[parseInt(index)].audioEnabled && <SoundWaveCanvas mediaStream={remoteStreams[parseInt(index)].stream} />}
+                        </div>
+                        {remoteStreams[parseInt(index)].videoEnabled && (
+                            <video
+                                key={`video-${index}`}
+                                id={index}
+                                autoPlay
+                                className="w-full h-full rounded"
+                                ref={(videoRef) => {
+                                    if (videoRef && localStream) {
+                                        (videoRef as HTMLVideoElement).srcObject = remoteStreams[parseInt(index)].stream;
+                                    }
+                                }}
+                            >
+                            </video>)}
+                    </div>
+                ))}
 
             </div>
             {/* Video grid container */}
@@ -165,7 +189,7 @@ export default function Meeting({ auth, id }: MeetingProps) {
                 </div>
 
                 <div className="space-x-2 text-center">
-                    <PrimaryButton onClick={toggleAudio}>
+                    <PrimaryButton onClick={toggleMic} disabled={isToggling == 'audio'}>
                         {isAudioMuted ? (
                             <AiOutlineAudioMuted className="w-5 h-5" />
                         ) : (
@@ -173,7 +197,7 @@ export default function Meeting({ auth, id }: MeetingProps) {
                         )}
                     </PrimaryButton>
 
-                    <PrimaryButton onClick={toggleVideo}>
+                    <PrimaryButton onClick={toggleVideo} disabled={isToggling == 'video'}>
                         {isVideoOff ? (
                             <BsCameraVideoOff className="w-5 h-5" />
                         ) : (
@@ -182,8 +206,8 @@ export default function Meeting({ auth, id }: MeetingProps) {
                     </PrimaryButton>
 
                     <PrimaryButton
-                        onClick={toggleScreenSharing}
                         disabled={isScreenSharing}
+                        onClick={() => { setIsScreenSharing(true) }}
                     >
                         {isScreenSharing ? (
                             <LuScreenShareOff className="w-5 h-5" />
