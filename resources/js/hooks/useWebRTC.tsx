@@ -40,12 +40,10 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
     const [remoteStreams, setRemoteStreams] = useState<Record<number, MediaStream>>({});
 
     const createStream = async ({ audio, video }: { audio: boolean, video: boolean }) => {
-
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio, video });
             return stream;
         } catch (error) {
-            console.error('Error accessing camera and microphone:', error);
             return new MediaStream();
         }
     }
@@ -127,7 +125,6 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
 
         peer.ontrack = async (event) => {
             const remoteStream = event.streams[0];
-            console.log("ontrack called:");
             setRemoteStreams(prevStreams => ({
                 ...prevStreams,
                 [targetId]: remoteStream

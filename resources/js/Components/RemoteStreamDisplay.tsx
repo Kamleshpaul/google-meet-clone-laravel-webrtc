@@ -14,11 +14,17 @@ const RemoteStreamDisplay: React.FC<RemoteStreamDisplayProps> = ({
     const [videoEnabled, setVideoEnabled] = useState(false)
     const [audioEnabled, setAudioEnabled] = useState(false)
 
+
+
     useEffect(() => {
-        console.log(remoteStream, 'remoteStream');
         if (remoteStream) {
             setVideoEnabled(remoteStream.getVideoTracks().length > 0);
             setAudioEnabled(remoteStream.getAudioTracks().length > 0);
+
+            remoteStream.onremovetrack = () => {
+                setVideoEnabled(false);
+                setAudioEnabled(false);
+            }
         } else {
             setVideoEnabled(false);
             setAudioEnabled(false);
@@ -33,24 +39,21 @@ const RemoteStreamDisplay: React.FC<RemoteStreamDisplayProps> = ({
                 style={{ width: '30rem', height: '18rem' }}
             >
                 <Avatar name={name} size='2xl' />
-                {audioEnabled && remoteStream && (
+                {(audioEnabled && remoteStream) && (
                     <SoundWaveCanvas mediaStream={remoteStream} />
                 )}
             </div>
 
-            {videoEnabled && remoteStream && (
-                <video
-                    muted
-                    autoPlay
-                    playsInline
-                    className="w-full h-full rounded"
-                    ref={(videoRef) => {
-                        if (videoRef && remoteStream) {
-                            (videoRef as HTMLVideoElement).srcObject = remoteStream;
-                        }
-                    }}
-                ></video>
-            )}
+            <video
+                autoPlay
+                playsInline
+                className={`w-full h-full rounded ${videoEnabled && remoteStream ? '' : 'hidden'}`}
+                ref={(videoRef) => {
+                    if (videoRef && remoteStream) {
+                        (videoRef as HTMLVideoElement).srcObject = remoteStream;
+                    }
+                }}
+            ></video>
         </div>
     );
 };

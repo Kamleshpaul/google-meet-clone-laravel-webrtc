@@ -66,7 +66,7 @@ export default function Meeting({ auth, id }: MeetingProps) {
 
     useEffect(() => {
         const initializeVideoStream = async () => {
-            const stream = await createMyVideoStream(false, true);
+            const stream = await createMyVideoStream(false, false);
             toast({
                 title: 'Call Started.',
                 status: "success",

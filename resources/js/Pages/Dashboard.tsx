@@ -20,6 +20,7 @@ export default function Dashboard({ auth }: PageProps) {
     }
 
     const handleJoin = () => {
+        if('' == meetingId) return;
         router.visit(`/meeting/${meetingId}`);
     }
 
