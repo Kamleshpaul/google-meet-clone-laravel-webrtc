@@ -21,7 +21,7 @@ export interface WebRTCState {
     createMyVideoStream: (video: boolean, audio: boolean) => Promise<MediaStream>
     destroyConnection: () => Promise<void>;
     localStream: MediaStream;
-    remoteStreams: Record<number, { stream: MediaStream, audioEnabled: boolean, videoEnabled: boolean }>;
+    remoteStreams: Record<number, MediaStream>;
     isToggling: string | null
     toggleMic: () => void;
     toggleVideo: () => void;
@@ -37,7 +37,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
     const renegotiatingRef = useRef(false);
 
     const [localStream, setLocalStream] = useState<MediaStream>(new MediaStream());
-    const [remoteStreams, setRemoteStreams] = useState<Record<number, { stream: MediaStream, audioEnabled: boolean, videoEnabled: boolean }>>({});
+    const [remoteStreams, setRemoteStreams] = useState<Record<number, MediaStream>>({});
 
     const createStream = async ({ audio, video }: { audio: boolean, video: boolean }) => {
 
@@ -73,7 +73,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
     const destroyConnection = async () => {
         localStream?.getTracks().forEach(track => track.stop());
 
-        Object.values(remoteStreams).forEach(({ stream }) => {
+        Object.values(remoteStreams).forEach((stream) => {
             stream.getTracks().forEach(track => track.stop());
         });
 
@@ -110,10 +110,9 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
 
         }
 
-
         peer.onicecandidate = (event) => {
             if (!event?.candidate) return;
-            if (peer.iceConnectionState == 'connected') return console.log("renagitaion");
+            if (peer.iceConnectionState == 'connected') return;
 
             (window as any).Echo.join(`handshake.${meetingCode}`)
                 .whisper('negotiation', {
@@ -127,19 +126,15 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
         };
 
         peer.ontrack = async (event) => {
-            console.log("triggered new TRACK");
             const remoteStream = event.streams[0];
-            const audioEnabled = remoteStream.getAudioTracks()[0]?.enabled;
-            const videoEnabled = remoteStream.getVideoTracks()[0]?.enabled;
+            console.log("ontrack called:");
             setRemoteStreams(prevStreams => ({
                 ...prevStreams,
-                [targetId]: {
-                    stream: remoteStream,
-                    audioEnabled,
-                    videoEnabled,
-                },
+                [targetId]: remoteStream
             }));
         }
+
+
 
         peer.onsignalingstatechange = () => {
             console.log(`${targetId} : signalingState ${peer.signalingState}`);
@@ -178,11 +173,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
         const emptyStream = new MediaStream();
         setRemoteStreams(prevStreams => ({
             ...prevStreams,
-            [targetId]: {
-                stream: emptyStream,
-                audioEnabled: false,
-                videoEnabled: false,
-            },
+            [targetId]: emptyStream,
         }));
 
         console.log("DESTROY " + targetId);
@@ -236,7 +227,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
         const peer = peersRef.current[sender_id];
         if (!peer) return console.error(`${sender_id} : handleIncomingCandidate no peer found.`);
         if (!candidate) return console.log(`${sender_id} : handleIncomingCandidate candidate null.`);
-        if (peer.iceConnectionState === 'connected') return console.log(`${sender_id} : handleIncomingCandidate candidate connected.`);
+        if (peer.iceConnectionState === 'connected') return
         await peer.addIceCandidate(candidate);
     }
 
@@ -277,41 +268,33 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
                 });
             }
 
-
             reNegotiation(parseInt(targetId));
-
-            (window as any).Echo.join(`handshake.${meetingCode}`)
-                .whisper('negotiation', {
-                    data: JSON.stringify({
-                        type: "toggle",
-                        audioEnabled: audioEnabled,
-                        videoEnabled: videoEnabled
-                    }),
-                    sender_id: userId,
-                    reciver_id: targetId
-                })
         });
     }
 
     const shareScreen = async () => {
         try {
             setIsScreenSharing(true);
+            const videoToggleState = isVideoOff;
             const screenStream = await navigator.mediaDevices.getDisplayMedia();
-            const screenTrack = screenStream.getTracks()[0];
-
-            localStream?.getTracks().forEach(track => track.stop());
+            const screenVideoTrack = screenStream.getVideoTracks()[0];
+            const existingVideoTrack = localStream.getVideoTracks()[0];
+            if (existingVideoTrack) {
+                localStream.removeTrack(existingVideoTrack);
+                existingVideoTrack.stop();
+            }
+            localStream.addTrack(screenVideoTrack);
+            setIsVideoOff(false);
             replaceRemotesStream(screenStream, !isAudioMuted, true);
 
-            let video = document.getElementById(userId.toString()) as HTMLVideoElement;
-            video.srcObject = screenStream;
 
-            screenTrack.onended = async () => {
+            screenVideoTrack.onended = async () => {
                 setIsScreenSharing(false);
 
-                const newStream = await createStream({ video: !isVideoOff, audio: !isAudioMuted });
+                const newStream = await createStream({ video: !videoToggleState, audio: !isAudioMuted });
                 if (!newStream) return console.log("Share Screen newStream not found.");
                 setLocalStream(newStream);
-                video.srcObject = newStream
+                setIsVideoOff(videoToggleState);
                 replaceRemotesStream(newStream, isAudioMuted, isVideoOff);
 
             };
@@ -327,7 +310,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
         if (isToggling == 'audio') return;
         if (isVideoOff && !isAudioMuted) {
             localStream.getTracks().forEach(track => track.stop());
-            replaceRemotesStream(null, !isAudioMuted, isVideoOff);
+            replaceRemotesStream(null, false, false);
             setLocalStream(new MediaStream());
             setIsToggling(null);
             setIsAudioMuted(prevValue => !prevValue);
@@ -354,7 +337,7 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
 
         if (isAudioMuted && !isVideoOff) {
             localStream.getTracks().forEach(track => track.stop());
-            replaceRemotesStream(null, !isAudioMuted, isVideoOff);
+            replaceRemotesStream(null, false, false);
             setLocalStream(new MediaStream());
             setIsToggling(null);
             setIsVideoOff(prevValue => !prevValue);
@@ -395,18 +378,6 @@ export function useWebRTC({ meetingCode, userId }: { meetingCode: string, userId
 
                         if (JSON_DATA.type === 'candidate') {
                             handleIncomingCandidate(sender_id, JSON_DATA.data);
-                        }
-
-                        if (JSON_DATA.type === 'toggle') {
-                            const { audioEnabled, videoEnabled } = JSON_DATA;
-                            setRemoteStreams(prevStreams => ({
-                                ...prevStreams,
-                                [sender_id]: {
-                                    ...prevStreams[sender_id],
-                                    audioEnabled,
-                                    videoEnabled,
-                                },
-                            }));
                         }
 
                     } catch (error) {

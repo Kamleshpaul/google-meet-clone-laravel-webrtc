@@ -9,7 +9,8 @@ const SoundWaveCanvas: FC<SoundWaveCanvasProps> = ({ mediaStream }) => {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !mediaStream?.getAudioTracks().length) return;
+    if (!canvas || !mediaStream) return;
+    if (!mediaStream.getAudioTracks().length) return;
 
     const audioContext = new AudioContext();
     const analyser = audioContext.createAnalyser();
@@ -27,7 +28,7 @@ const SoundWaveCanvas: FC<SoundWaveCanvasProps> = ({ mediaStream }) => {
 
     const draw = () => {
       analyser.getByteTimeDomainData(dataArray);
-      if(!canvasCtx) return;
+      if (!canvasCtx) return;
 
       canvasCtx.clearRect(0, 0, canvasWidth, canvasHeight);
       canvasCtx.beginPath();

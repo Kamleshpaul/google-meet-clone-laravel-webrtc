@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import Moment from "react-moment";
 import { Avatar, useToast } from '@chakra-ui/react'
 import SoundWaveCanvas from "@/Components/SoundWaveCanvas";
+import RemoteStreamDisplay from "@/Components/RemoteStreamDisplay";
 
 interface MeetingProps extends PageProps {
     id: string;
@@ -65,7 +66,7 @@ export default function Meeting({ auth, id }: MeetingProps) {
 
     useEffect(() => {
         const initializeVideoStream = async () => {
-            const stream = await createMyVideoStream(true, true);
+            const stream = await createMyVideoStream(false, true);
             toast({
                 title: 'Call Started.',
                 status: "success",
@@ -85,7 +86,6 @@ export default function Meeting({ auth, id }: MeetingProps) {
                         });
                     })
                     .joining(async (user: User) => {
-                        console.log({ user });
                         setMeetingUsers(prev => [...prev, user]);
                         createOffer(user.id, stream);
                     })
@@ -105,8 +105,6 @@ export default function Meeting({ auth, id }: MeetingProps) {
             (window as any).Echo.leave(`meeting.${id}`);
         };
     }, [id]);
-
-    console.log({ meetingUsers });
 
     // useEffect(() => {
     //     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -155,25 +153,11 @@ export default function Meeting({ auth, id }: MeetingProps) {
 
 
                 {meetingUsers.filter(x => x.id != auth.user.id).map((user) => (
-                    <div key={user.id}>
-                        <div className={`flex items-center justify-center bg-gray-400 ${!remoteStreams[user.id]?.videoEnabled ? '' : 'hidden'}`} style={{ width: "30rem", height: "18rem" }} >
-                            <Avatar name={meetingUsers.find(u => u.id == user.id)?.name} size='2xl' />
-                            {remoteStreams[user.id]?.audioEnabled && <SoundWaveCanvas mediaStream={remoteStreams[user.id].stream} />}
-                        </div>
-                        {remoteStreams[user.id]?.videoEnabled && (
-                            <video
-                                muted
-                                id={user.id.toString()}
-                                autoPlay
-                                className="w-full h-full rounded"
-                                ref={(videoRef) => {
-                                    if (videoRef && localStream) {
-                                        (videoRef as HTMLVideoElement).srcObject = remoteStreams[user.id].stream;
-                                    }
-                                }}
-                            >
-                            </video>)}
-                    </div>
+                    <RemoteStreamDisplay
+                        key={user.id}
+                        remoteStream={remoteStreams[user.id]}
+                        name={meetingUsers.find(u => u.id == user.id)?.name || 'N/A'}
+                    />
                 ))}
 
             </div>
