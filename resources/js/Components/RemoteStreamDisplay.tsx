@@ -38,7 +38,7 @@ const RemoteStreamDisplay: React.FC<RemoteStreamDisplayProps> = ({
                     }`}
                 style={{ width: '30rem', height: '18rem' }}
             >
-                <Avatar name={name} size='2xl' />
+                <Avatar className='z-10' name={name} size='2xl' />
                 {(audioEnabled && remoteStream) && (
                     <SoundWaveCanvas mediaStream={remoteStream} />
                 )}

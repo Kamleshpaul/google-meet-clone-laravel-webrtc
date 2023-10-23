@@ -5,12 +5,13 @@ interface SoundWaveCanvasProps {
 }
 
 const SoundWaveCanvas: FC<SoundWaveCanvasProps> = ({ mediaStream }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const pluseRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !mediaStream) return console.error("Sound Wave Canvas or MediaStream not found.");
-    if(!mediaStream.getAudioTracks().length) return;
+    if (!pluseRef.current || !mediaStream) return console.error("Sound Wave Canvas or MediaStream not found.");
+    if (!mediaStream.getAudioTracks().length) return;
+
+
     const audioContext = new AudioContext();
     const analyser = audioContext.createAnalyser();
 
@@ -21,49 +22,25 @@ const SoundWaveCanvas: FC<SoundWaveCanvasProps> = ({ mediaStream }) => {
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
 
-    const canvasCtx = canvas.getContext('2d');
-    const canvasWidth = canvas.width;
-    const canvasHeight = canvas.height;
+    const updatePulse = () => {
+      analyser.getByteFrequencyData(dataArray);
+      const average = dataArray.reduce((a, b) => a + b) / bufferLength;
+      const scaleFactor = average / 100;
+      if(!pluseRef.current) return;
+      pluseRef.current.style.transform = `scale(${1 + scaleFactor})`;
+      requestAnimationFrame(updatePulse);
+    }
 
-    const draw = () => {
-      analyser.getByteTimeDomainData(dataArray);
-      if (!canvasCtx) return console.error("Sound Wave getByteTimeDomainData");
-
-      canvasCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-      canvasCtx.beginPath();
-
-      const sliceAngle = (Math.PI * 2) / bufferLength;
-      let angle = 0;
-
-      for (let i = 0; i < bufferLength; i++) {
-        const v = dataArray[i] / 128.0;
-        const radius = (canvasHeight / 2) * v;
-        const x = canvasWidth / 2 + radius * Math.cos(angle);
-        const y = canvasHeight / 2 + radius * Math.sin(angle);
-
-        if (i === 0) {
-          canvasCtx.moveTo(x, y);
-        } else {
-          canvasCtx.lineTo(x, y);
-        }
-
-        angle += sliceAngle;
-      }
-
-      canvasCtx.closePath();
-      canvasCtx.stroke();
-
-      requestAnimationFrame(draw);
-    };
-
-    draw();
+    audioContext.resume().then(() => {
+      updatePulse();
+    });
 
     return () => {
       audioContext.close();
     };
   }, [mediaStream]);
 
-  return <canvas className="absolute" ref={canvasRef} />;
+  return <div className="absolute w-32 h-32 bg-gray-500 rounded-full opacity-75" ref={pluseRef}></div>;
 };
 
 export default SoundWaveCanvas;

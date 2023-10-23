@@ -132,7 +132,7 @@ export default function Meeting({ auth, id }: MeetingProps) {
 
                 <div>
                     <div className={`flex items-center justify-center bg-gray-400 ${isVideoOff && !isScreenSharing ? '' : 'hidden'}`} style={{ width: "30rem", height: "18rem" }}>
-                        <Avatar name={auth.user.name} size='2xl' />
+                        <Avatar className="z-10" name={auth.user.name} size='2xl' />
                         {!isAudioMuted && <SoundWaveCanvas mediaStream={localStream} />}
                     </div>
                     {!isVideoOff && (
