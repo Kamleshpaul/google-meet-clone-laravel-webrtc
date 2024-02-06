@@ -24,6 +24,8 @@ This is a group video calling app with `Laravel` and `reactjs` using `websocket`
 
 ```bash
 composer install
+npm install
+npm run prod
 ```
 
 - run local development server
