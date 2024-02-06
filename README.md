@@ -7,6 +7,7 @@ This is a group video calling app with `Laravel` and `reactjs` using `websocket`
 - [x] php 8.1 or above
 - [x] MYSQL 8.0
 - [x] COMPOSER
+- [x] SOKETI
 - [x] Node.js 18 or above
 
 ## Features
